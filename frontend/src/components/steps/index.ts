@@ -1,0 +1,11 @@
+export { default as Step1Normalize } from './Step1Normalize';
+export { default as Step2Exclude } from './Step2Exclude';
+export { default as Step3AnchorExtract } from './Step3AnchorExtract';
+export { default as Step4EvidenceConfirm } from './Step4EvidenceConfirm';
+export { default as Step5StrictFlag } from './Step5StrictFlag';
+export { default as Step6EvidenceType } from './Step6EvidenceType';
+export { default as Step7Scope } from './Step7Scope';
+export { default as Step8TriggerAssign } from './Step8TriggerAssign';
+export { default as Step9ContextLink } from './Step9ContextLink';
+export { default as Step10GoalDomain } from './Step10GoalDomain';
+export { default as Step11Export } from './Step11Export';

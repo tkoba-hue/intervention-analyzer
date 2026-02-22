@@ -1,0 +1,18 @@
+kind,label,inclusion,notes,rule_id
+scope,goal_related,目標行動や生活改善に関する発話,迷う場合はrapport_relatedへ,
+scope,ops_related,操作 仕様 トラブル 手続きに関する発話,除外ではなく別スコープとして残す,
+scope,service_related,参加やチャット継続そのものに関する発話,提案否定とは別,
+scope,rapport_related,関係づくり 雑談 近況共有で目標行動に直結しないもの,goal_relatedに迷うものはここへ,
+type,awareness,気づき 理解 納得の表明,単なる相づちは除外,A1
+type,intention,やってみる意思の表明 具体不足,日付や具体がなければここへ,I1
+type,plan,次に何をするかが特定できる いつ どこで どう 何を のいずれかが明示,具体がなければintention,P1
+type,action_report,実行した できた 工夫した等の報告,一般的なしましただけでは付けない,AR1
+type,continuation,継続の表明,,C1
+type,barrier,障壁やできない理由の表明,refusal_actionやstop_serviceとは別,B1
+type,refusal_action,提案や特定行動の拒否,サービス中断とは別,R1
+type,emotion_state,安心 不安などの状態表明,self_efficacyは別で付ける,E1
+type,self_efficacy,できそう 自信 できてる感じ等の自己効力感,emotion_stateと併記可,SE1
+type,outcome_report,結果や変化の報告 主観含む,,O1
+type,stop_service,参加やチャット停止などサービス継続の中断,提案否定と混ぜない,S1
+type,external_event,外部要因、環境変化の出来事報告：事実っぽいもの,外部イベントの事実報告を優先して付与,X1
+type,status_update,身体（心理）・生活状況の変化の報告や、質問に対する現状報告（アセスメントへの回答）：自覚,external_eventと迷う場合はexternal_eventを優先しstatus_updateは付けない,SU1
