@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useProjectStore, ChatRecord } from '@/store/projectStore';
 
-const STEP_ID = '3-3' as const;
+const STEP_ID = '11' as const;
 
 // 日付をWeek番号に変換
 function getWeekNumber(dateStr: string): number {
@@ -320,7 +320,7 @@ export default function Step11Export() {
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">3-3: 整形・出力</h2>
+      <h2 className="text-2xl font-bold mb-4">Step 11: 整形・出力</h2>
       <p className="text-gray-600 mb-6">
         分析結果のレポートとエクスポート
       </p>

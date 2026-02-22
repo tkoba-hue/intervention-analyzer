@@ -4,7 +4,7 @@ import { useProjectStore } from '@/store/projectStore';
 import { api } from '@/lib/api';
 import StepExplanation from '@/components/common/StepExplanation';
 
-const STEP_ID = '1-2' as const;
+const STEP_ID = '2' as const;
 
 export default function Step2Exclude() {
   const { steps, data, bulkUpdateRecords, updateStepStatus, updateStepProgress } = useProjectStore();
@@ -45,7 +45,7 @@ export default function Step2Exclude() {
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">1-2: 除外マーク</h2>
+      <h2 className="text-2xl font-bold mb-4">Step 2: 除外マーク</h2>
       <p className="text-gray-600 mb-6">
         スタンプのみ、絵文字のみ等、分析対象外のメッセージを識別します。
       </p>

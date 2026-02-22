@@ -39,7 +39,7 @@ function HighlightedText({ text, patterns }: { text: string; patterns?: string[]
   );
 }
 
-const STEP_ID = '2B-2' as const;
+const STEP_ID = '7' as const;
 
 export default function Step4EvidenceConfirm() {
   const { steps, data, updateRecord, bulkUpdateRecords, updateStepStatus, updateStepProgress } = useProjectStore();
@@ -103,8 +103,8 @@ export default function Step4EvidenceConfirm() {
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">
-        <span className="text-green-600">🟢</span> 2B-2: Evidence 確定
+      <h2 className="text-2xl font-bold mb-4 text-green-600">
+        Step 7: Evidence 確定
       </h2>
       <p className="text-gray-600 mb-6">
         候補として抽出された発話を確認し、本当にエビデンス（変化の表明）かどうかを判定します。
@@ -308,7 +308,7 @@ export default function Step4EvidenceConfirm() {
       </div>
 
       {candidates.length === 0 && (
-        <p className="text-gray-500">候補がありません。Step 3 を先に実行してください。</p>
+        <p className="text-gray-500">候補がありません。Step 6 を先に実行してください。</p>
       )}
     </div>
   );

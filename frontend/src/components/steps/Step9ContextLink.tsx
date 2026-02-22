@@ -3,7 +3,7 @@
 import { useProjectStore } from '@/store/projectStore';
 import StepExplanation from '@/components/common/StepExplanation';
 
-const STEP_ID = '3-1' as const;
+const STEP_ID = '9' as const;
 
 const TRIGGER_TYPES = [
   { value: '実行提案', priority: 1 },
@@ -67,7 +67,7 @@ export default function Step9ContextLink() {
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">3-1: 文脈リンク</h2>
+      <h2 className="text-2xl font-bold mb-4">Step 9: 文脈リンク</h2>
       <p className="text-gray-600 mb-6">
         エビデンスと介入側発話をリンクします。
         Trigger（2A）とEvidence（2B）の処理が完了したデータを統合します。

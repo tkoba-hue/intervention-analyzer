@@ -1,17 +1,17 @@
 'use client';
 
-import { useProjectStore, PhaseStepId, STEP_INFO, STEP_DEPENDENCIES } from '@/store/projectStore';
+import { useProjectStore, StepId, STEP_INFO } from '@/store/projectStore';
 import { useRouter, useParams } from 'next/navigation';
 
 interface StepIndicatorProps {
-  currentStep?: PhaseStepId;
+  currentStep?: StepId;
 }
 
 // トラック別のステップ
-const P1_STEPS: PhaseStepId[] = ['1-1', '1-2'];
-const P2A_STEPS: PhaseStepId[] = ['2A-1', '2A-2', '2A-3'];
-const P2B_STEPS: PhaseStepId[] = ['2B-1', '2B-2', '2B-3'];
-const P3_STEPS: PhaseStepId[] = ['3-1', '3-2', '3-3'];
+const COMMON_STEPS: StepId[] = ['1', '2'];
+const TRIGGER_STEPS: StepId[] = ['3', '4', '5'];
+const EVIDENCE_STEPS: StepId[] = ['6', '7', '8'];
+const INTEGRATION_STEPS: StepId[] = ['9', '10', '11'];
 
 export default function StepIndicator({ currentStep: propCurrentStep }: StepIndicatorProps) {
   const router = useRouter();
@@ -21,7 +21,7 @@ export default function StepIndicator({ currentStep: propCurrentStep }: StepIndi
   const projectId = params?.id as string;
   const activeStep = propCurrentStep ?? storeCurrentStep;
 
-  const getStepStyle = (stepId: PhaseStepId) => {
+  const getStepStyle = (stepId: StepId) => {
     const status = steps[stepId]?.status || 'pending';
     const isActive = stepId === activeStep;
     const info = STEP_INFO[stepId];
@@ -56,13 +56,13 @@ export default function StepIndicator({ currentStep: propCurrentStep }: StepIndi
     return `${bgColor} ${textColor}`;
   };
 
-  const handleStepClick = (stepId: PhaseStepId) => {
+  const handleStepClick = (stepId: StepId) => {
     if (projectId && canProceedToStep(stepId)) {
       router.push(`/project/${projectId}/step/${stepId}`);
     }
   };
 
-  const renderStep = (stepId: PhaseStepId) => {
+  const renderStep = (stepId: StepId) => {
     const info = STEP_INFO[stepId];
     const canProceed = canProceedToStep(stepId);
     const status = steps[stepId]?.status;
@@ -77,36 +77,34 @@ export default function StepIndicator({ currentStep: propCurrentStep }: StepIndi
           ${canProceed ? 'hover:opacity-80 cursor-pointer' : 'cursor-not-allowed opacity-60'}
           ${getStepStyle(stepId)}
         `}
-        title={`${stepId}: ${info.label}`}
+        title={`Step ${stepId}: ${info.label}`}
       >
-        {status === 'completed' ? '✓' : ''}{info.shortLabel}
+        {status === 'completed' && 'v'}{stepId}
       </button>
     );
   };
 
   return (
     <div className="flex items-center gap-1 flex-wrap text-xs">
-      {/* P1 */}
-      <span className="text-gray-500 font-medium mr-1">P1</span>
-      {P1_STEPS.map(renderStep)}
+      {/* Common */}
+      {COMMON_STEPS.map(renderStep)}
 
       <span className="text-gray-300 mx-1">→</span>
 
-      {/* P2 Trigger */}
-      <span className="text-blue-500 font-medium mr-1">P2 Trigger</span>
-      {P2A_STEPS.map(renderStep)}
-
-      <span className="text-gray-300 mx-1">/</span>
-
-      {/* P2 Evidence */}
-      <span className="text-green-500 font-medium mr-1">P2 Evidence</span>
-      {P2B_STEPS.map(renderStep)}
+      {/* Trigger */}
+      <span className="text-blue-500 font-medium mr-1">Trigger</span>
+      {TRIGGER_STEPS.map(renderStep)}
 
       <span className="text-gray-300 mx-1">→</span>
 
-      {/* P3 */}
-      <span className="text-gray-500 font-medium mr-1">P3</span>
-      {P3_STEPS.map(renderStep)}
+      {/* Evidence */}
+      <span className="text-green-500 font-medium mr-1">Evidence</span>
+      {EVIDENCE_STEPS.map(renderStep)}
+
+      <span className="text-gray-300 mx-1">→</span>
+
+      {/* Integration */}
+      {INTEGRATION_STEPS.map(renderStep)}
     </div>
   );
 }

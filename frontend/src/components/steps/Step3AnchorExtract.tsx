@@ -4,7 +4,7 @@ import { useProjectStore } from '@/store/projectStore';
 import { api } from '@/lib/api';
 import StepExplanation from '@/components/common/StepExplanation';
 
-const STEP_ID = '2B-1' as const;
+const STEP_ID = '6' as const;
 
 export default function Step3AnchorExtract() {
   const { steps, data, bulkUpdateRecords, updateStepStatus, updateStepProgress } = useProjectStore();
@@ -47,8 +47,8 @@ export default function Step3AnchorExtract() {
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">
-        <span className="text-green-600">🟢</span> 2B-1: Evidence 候補抽出
+      <h2 className="text-2xl font-bold mb-4 text-green-600">
+        Step 6: Evidence 候補抽出
       </h2>
       <p className="text-gray-600 mb-6">
         参加者の発話から、エビデンス候補をパターンマッチで抽出します。
@@ -61,7 +61,7 @@ export default function Step3AnchorExtract() {
           <p><strong>3. 候補フラグ付与:</strong> evidence_anchor = 1 を付与</p>
         </div>
         <div className="mt-3 p-3 bg-green-50 rounded text-sm">
-          <strong>確認ポイント:</strong> 次のステップ（2B-2: 確定）で人間が候補を確認・確定します。
+          <strong>確認ポイント:</strong> 次のステップ（Step 7: 確定）で人間が候補を確認・確定します。
         </div>
       </StepExplanation>
 

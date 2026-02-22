@@ -4,7 +4,7 @@ import { useProjectStore } from '@/store/projectStore';
 import { api } from '@/lib/api';
 import StepExplanation from '@/components/common/StepExplanation';
 
-const STEP_ID = '1-1' as const;
+const STEP_ID = '1' as const;
 
 export default function Step1Normalize() {
   const { steps, data, bulkUpdateRecords, updateStepStatus, updateStepProgress } = useProjectStore();
@@ -41,7 +41,7 @@ export default function Step1Normalize() {
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">1-1: 正規化</h2>
+      <h2 className="text-2xl font-bold mb-4">Step 1: 正規化</h2>
       <p className="text-gray-600 mb-6">
         HTMLタグの除去、改行の整形、空白の正規化を行います。
       </p>

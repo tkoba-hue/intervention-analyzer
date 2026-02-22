@@ -5,7 +5,7 @@ import { useProjectStore } from '@/store/projectStore';
 import { api } from '@/lib/api';
 import StepExplanation from '@/components/common/StepExplanation';
 
-const STEP_ID = '2B-3' as const;
+const STEP_ID = '8' as const;
 
 const EVIDENCE_TYPES = [
   { value: 'awareness', label: '気づき (awareness)', description: '気づき、理解、納得の表明' },
@@ -136,8 +136,8 @@ export default function Step6EvidenceType() {
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">
-        <span className="text-green-600">🟢</span> 2B-3: Evidence 分類
+      <h2 className="text-2xl font-bold mb-4 text-green-600">
+        Step 8: Evidence 分類
       </h2>
       <p className="text-gray-600 mb-6">
         確定したエビデンスに種類（type）とスコープ（内/外）を付与します。
@@ -362,7 +362,7 @@ export default function Step6EvidenceType() {
       )}
 
       {confirmedRecords.length === 0 && (
-        <p className="text-gray-500">対象がありません。2B-2（Evidence確定）を先に実行してください。</p>
+        <p className="text-gray-500">対象がありません。Step 7（Evidence確定）を先に実行してください。</p>
       )}
     </div>
   );

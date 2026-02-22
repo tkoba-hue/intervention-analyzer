@@ -4,7 +4,7 @@ import { useProjectStore } from '@/store/projectStore';
 import { api } from '@/lib/api';
 import StepExplanation from '@/components/common/StepExplanation';
 
-const STEP_ID = '3-2' as const;
+const STEP_ID = '10' as const;
 
 const GOAL_DOMAINS = [
   { value: '運動', description: '歩行、体操、筋力、運動量、身体活動' },
@@ -78,7 +78,7 @@ export default function Step10GoalDomain() {
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">3-2: goal_domain 付与</h2>
+      <h2 className="text-2xl font-bold mb-4">Step 10: goal_domain 付与</h2>
       <p className="text-gray-600 mb-6">
         スコープ内のエビデンスに目標ドメイン（運動・栄養等）を付与します。
       </p>
