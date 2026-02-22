@@ -85,7 +85,7 @@ export default function Step10GoalDomain() {
 
       <StepExplanation title="機械がやること" defaultExpanded={false}>
         <div className="space-y-2 text-sm">
-          <p><strong>1. キーワード検出:</strong> 「歩く」「体操」→運動、「食べる」「栄養」→栄養、等のパターンマッチ</p>
+          <p><strong>1. キーワード検出:</strong> 「歩く」「体操」-&gt;運動、「食べる」「栄養」-&gt;栄養、等のパターンマッチ</p>
           <p><strong>2. ドメイン付与:</strong> 検出したキーワードから目標ドメインを自動付与</p>
         </div>
         <div className="mt-3 p-3 bg-blue-50 rounded text-sm">

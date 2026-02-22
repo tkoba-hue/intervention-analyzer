@@ -95,8 +95,8 @@ export default function Step4EvidenceConfirm() {
 
   const REJECTION_REASONS = [
     { value: 'chitchat', label: '雑談・情報共有のみ' },
-    { value: 'quote', label: '引用伝聞（○○らしい）' },
-    { value: 'rhetorical', label: '反語否定（○○なんてできない）' },
+    { value: 'quote', label: '引用伝聞（XXらしい）' },
+    { value: 'rhetorical', label: '反語否定（XXなんてできない）' },
     { value: 'wrong_meaning', label: '意味違い' },
     { value: 'unclear', label: '判断困難' },
   ];

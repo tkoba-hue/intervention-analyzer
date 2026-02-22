@@ -202,7 +202,7 @@ export default function StepPage() {
                 onClick={() => router.push(`/project/${currentProjectId}/step/${prevStep}`)}
                 className="px-6 py-2 rounded bg-gray-500 text-white hover:bg-gray-600"
               >
-                ← Step {prevStep}
+                &lt;- Step {prevStep}
               </button>
             ) : (
               <div />
@@ -221,7 +221,7 @@ export default function StepPage() {
                     : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}
               >
-                Step {nextStep} →
+                Step {nextStep} -&gt;
               </button>
             ) : null}
           </div>

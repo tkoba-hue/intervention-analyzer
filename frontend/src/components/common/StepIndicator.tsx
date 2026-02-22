@@ -89,19 +89,19 @@ export default function StepIndicator({ currentStep: propCurrentStep }: StepIndi
       {/* Common */}
       {COMMON_STEPS.map(renderStep)}
 
-      <span className="text-gray-300 mx-1">→</span>
+      <span className="text-gray-300 mx-1">-&gt;</span>
 
       {/* Trigger */}
       <span className="text-blue-500 font-medium mr-1">Trigger</span>
       {TRIGGER_STEPS.map(renderStep)}
 
-      <span className="text-gray-300 mx-1">→</span>
+      <span className="text-gray-300 mx-1">-&gt;</span>
 
       {/* Evidence */}
       <span className="text-green-500 font-medium mr-1">Evidence</span>
       {EVIDENCE_STEPS.map(renderStep)}
 
-      <span className="text-gray-300 mx-1">→</span>
+      <span className="text-gray-300 mx-1">-&gt;</span>
 
       {/* Integration */}
       {INTEGRATION_STEPS.map(renderStep)}
