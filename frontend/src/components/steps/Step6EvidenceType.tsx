@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useProjectStore } from '@/store/projectStore';
 import { api } from '@/lib/api';
 import StepExplanation from '@/components/common/StepExplanation';
@@ -101,6 +101,22 @@ export default function Step6EvidenceType() {
     return { before, after };
   };
 
+  // useEffectでdata変更を監視して完了チェック（stale closure回避）
+  useEffect(() => {
+    if (confirmedRecords.length === 0) return;
+
+    const completedCount = confirmedRecords.filter(
+      (r) => r.evidence_type_final && r.scope_final
+    ).length;
+
+    if (completedCount === confirmedRecords.length) {
+      updateStepStatus(STEP_ID, 'completed');
+    } else if (completedCount > 0) {
+      updateStepStatus(STEP_ID, 'in_progress');
+    }
+    updateStepProgress(STEP_ID, completedCount, confirmedRecords.length);
+  }, [confirmedRecords, updateStepStatus, updateStepProgress]);
+
   const handleTypeChange = (id: string, type: string) => {
     // タイプに応じてスコープを自動設定
     const autoScope = OUT_OF_SCOPE_TYPES.includes(type) ? 'out_of_scope' : 'in_scope';
@@ -108,25 +124,10 @@ export default function Step6EvidenceType() {
       evidence_type_final: type,
       scope_final: autoScope,
     });
-    checkCompletion();
   };
 
   const handleScopeChange = (id: string, scope: string) => {
     updateRecord(id, { scope_final: scope });
-    checkCompletion();
-  };
-
-  const checkCompletion = () => {
-    const newAssigned = confirmedRecords.filter(
-      (r) => r.evidence_type_final && r.scope_final
-    ).length;
-
-    if (newAssigned === confirmedRecords.length) {
-      updateStepStatus(STEP_ID, 'completed');
-    } else {
-      updateStepStatus(STEP_ID, 'in_progress');
-    }
-    updateStepProgress(STEP_ID, newAssigned, confirmedRecords.length);
   };
 
   const handleClear = () => {

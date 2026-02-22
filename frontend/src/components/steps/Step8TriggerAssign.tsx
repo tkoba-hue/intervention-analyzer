@@ -347,7 +347,7 @@ export default function Step8TriggerAssign() {
                 onClick={handleComplete}
                 className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
               >
-                確定して次へ
+                確定する
               </button>
             </div>
           </div>
