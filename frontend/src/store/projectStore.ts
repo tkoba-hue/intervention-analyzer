@@ -31,6 +31,7 @@ export interface ChatRecord {
   scope_auto?: string;
   scope_override?: string;
   scope_final?: string;
+  trigger_excluded?: boolean;
   trigger_type_auto: string[];
   trigger_type_override?: string[];
   trigger_type_final: string[];
