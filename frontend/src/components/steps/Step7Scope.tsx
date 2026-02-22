@@ -123,7 +123,11 @@ export default function Step7Scope() {
               key={record.id}
               className={`
                 border rounded-lg p-4
-                ${isOverridden ? 'border-amber-300 bg-amber-50' : 'border-gray-300 bg-white'}
+                ${isOverridden
+                  ? 'border-amber-300 bg-amber-50'
+                  : record.scope_final
+                    ? 'border-green-300 bg-green-50'
+                    : 'border-red-300 bg-red-50'}
               `}
             >
               <div className="flex justify-between items-start mb-2">
