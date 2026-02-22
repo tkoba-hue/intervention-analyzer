@@ -25,7 +25,7 @@ export function middleware(request: NextRequest) {
   const decoded = atob(encoded);
   const [user, pass] = decoded.split(':');
 
-  if (user !== process.env.BASIC_AUTH_USER || pass !== process.env.BASIC_AUTH_PASSWORD) {
+  if (user !== process.env.BASIC_AUTH_USER || pass !== process.env.BASIC_AUTH_PASS) {
     return new NextResponse('Invalid credentials', {
       status: 401,
       headers: { 'WWW-Authenticate': 'Basic realm="Secure Area"' },
