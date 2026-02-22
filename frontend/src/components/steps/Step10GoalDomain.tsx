@@ -4,6 +4,8 @@ import { useProjectStore } from '@/store/projectStore';
 import { api } from '@/lib/api';
 import StepExplanation from '@/components/common/StepExplanation';
 
+const STEP_ID = '3-2' as const;
+
 const GOAL_DOMAINS = [
   { value: '運動', description: '歩行、体操、筋力、運動量、身体活動' },
   { value: '栄養', description: '食事内容、栄養素、食行動、摂取' },
@@ -16,16 +18,16 @@ const GOAL_DOMAINS = [
 
 export default function Step10GoalDomain() {
   const { steps, data, updateRecord, bulkUpdateRecords, updateStepStatus, updateStepProgress } = useProjectStore();
-  const step = steps[10];
+  const step = steps[STEP_ID];
 
-  // scope_final が goal_related の行のみ
+  // scope_final が in_scope の行のみ
   const targetRecords = data.filter(
-    (r) => r.evidence_flag_strict && r.scope_final === 'goal_related'
+    (r) => r.evidence_confirm === 1 && r.scope_final === 'in_scope'
   );
   const assignedCount = targetRecords.filter((r) => r.goal_domain_final).length;
 
   const handleAutoProcess = async () => {
-    updateStepStatus(10, 'in_progress');
+    updateStepStatus(STEP_ID, 'in_progress');
 
     try {
       const response = await api.classifyGoalDomain(data);
@@ -39,50 +41,62 @@ export default function Step10GoalDomain() {
         }));
 
       bulkUpdateRecords(updates);
-      updateStepProgress(10, targetRecords.length, targetRecords.length);
-      updateStepStatus(10, 'completed');
+      updateStepProgress(STEP_ID, targetRecords.length, targetRecords.length);
+      updateStepStatus(STEP_ID, 'completed');
     } catch (error) {
       console.error('Classify goal domain error:', error);
-      updateStepStatus(10, 'pending');
+      updateStepStatus(STEP_ID, 'pending');
     }
   };
 
   const handleDomainChange = (id: string, domain: string) => {
     updateRecord(id, { goal_domain_final: domain });
+
+    const newAssigned = targetRecords.filter(
+      (r) => r.id === id || r.goal_domain_final
+    ).length;
+
+    if (newAssigned === targetRecords.length) {
+      updateStepStatus(STEP_ID, 'completed');
+    } else {
+      updateStepStatus(STEP_ID, 'in_progress');
+    }
+    updateStepProgress(STEP_ID, newAssigned, targetRecords.length);
+  };
+
+  const handleClear = () => {
+    if (!confirm('goal_domainを全てクリアしますか？')) return;
+    const updates = targetRecords.map((r) => ({
+      id: r.id,
+      goal_domain_auto: undefined,
+      goal_domain_final: undefined,
+    }));
+    bulkUpdateRecords(updates);
+    updateStepStatus(STEP_ID, 'pending');
+    updateStepProgress(STEP_ID, 0, targetRecords.length);
   };
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Step 10: goal_domain 付与</h2>
+      <h2 className="text-2xl font-bold mb-4">3-2: goal_domain 付与</h2>
       <p className="text-gray-600 mb-6">
-        scope が goal_related のエビデンスに目標ドメインを付与します。
+        スコープ内のエビデンスに目標ドメイン（運動・栄養等）を付与します。
       </p>
 
-      <StepExplanation title="このステップの目的と判断基準" defaultExpanded={false}>
-        <div>
-          <h4 className="font-medium text-gray-800 mb-2">目的</h4>
-          <p>
-            目標関連のエビデンスを「どの分野の行動変容か」で分類します。
-            最終レポートでドメイン別の分析ができるようになります。
-          </p>
+      <StepExplanation title="機械がやること" defaultExpanded={false}>
+        <div className="space-y-2 text-sm">
+          <p><strong>1. キーワード検出:</strong> 「歩く」「体操」→運動、「食べる」「栄養」→栄養、等のパターンマッチ</p>
+          <p><strong>2. ドメイン付与:</strong> 検出したキーワードから目標ドメインを自動付与</p>
         </div>
-        <div>
-          <h4 className="font-medium text-gray-800 mb-2">ドメインの選び方</h4>
-          <p>
-            発話の内容から最も関連性の高いドメインを1つ選択してください。
-            複数にまたがる場合は、主要なものを選びます。
-          </p>
-        </div>
-        <div>
-          <h4 className="font-medium text-gray-800 mb-2">次のステップ</h4>
-          <p>全ての分類が完了したら、Step 11でレポートを出力できます。</p>
+        <div className="mt-3 p-3 bg-blue-50 rounded text-sm">
+          <strong>確認ポイント:</strong> 複数にまたがる場合は主要なものを選択してください。
         </div>
       </StepExplanation>
 
       <div className="bg-gray-50 rounded-lg p-4 mb-6">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <span className="text-gray-500">対象件数:</span>
+            <span className="text-gray-500">対象件数（スコープ内）:</span>
             <span className="ml-2 font-medium">{targetRecords.length}</span>
           </div>
           <div>
@@ -107,21 +121,13 @@ export default function Step10GoalDomain() {
       <div className="flex gap-4 mb-6">
         <button
           onClick={handleAutoProcess}
-          className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
+          disabled={step?.status === 'in_progress' || targetRecords.length === 0}
+          className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
         >
           自動判定実行
         </button>
         <button
-          onClick={() => {
-            const updates = targetRecords.map((r) => ({
-              id: r.id,
-              goal_domain_auto: undefined,
-              goal_domain_final: undefined,
-            }));
-            bulkUpdateRecords(updates);
-            updateStepStatus(10, 'pending');
-            updateStepProgress(10, 0, targetRecords.length);
-          }}
+          onClick={handleClear}
           className="px-6 py-2 rounded-lg font-medium bg-gray-500 hover:bg-gray-600 text-white"
         >
           一括クリア
@@ -132,7 +138,19 @@ export default function Step10GoalDomain() {
         {targetRecords.map((record) => (
           <div key={record.id} className="border rounded-lg p-4 bg-white">
             <div className="flex justify-between items-start mb-2">
-              <span className="text-xs text-gray-400">#{record.id}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">#{record.id}</span>
+                {record.evidence_type_final && (
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                    {record.evidence_type_final}
+                  </span>
+                )}
+                {record.goal_domain_auto && (
+                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                    推定: {record.goal_domain_auto}
+                  </span>
+                )}
+              </div>
               <span className="text-xs text-gray-500">{record.datetime}</span>
             </div>
 
@@ -165,7 +183,7 @@ export default function Step10GoalDomain() {
 
       {targetRecords.length === 0 && (
         <p className="text-gray-500">
-          対象がありません。Step 7 で scope を goal_related に設定した行が対象です。
+          対象がありません。2B-3（Evidence分類）でスコープ内のエビデンスを確定してください。
         </p>
       )}
     </div>

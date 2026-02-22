@@ -12,7 +12,7 @@ type,barrier,障壁やできない理由の表明,refusal_actionやstop_service�
 type,refusal_action,提案や特定行動の拒否,サービス中断とは別,R1
 type,emotion_state,安心 不安などの状態表明,self_efficacyは別で付ける,E1
 type,self_efficacy,できそう 自信 できてる感じ等の自己効力感,emotion_stateと併記可,SE1
-type,outcome_report,結果や変化の報告 主観含む,,O1
+type,situation_report,状況報告 結果や変化の報告 主観含む,,SR1
 type,stop_service,参加やチャット停止などサービス継続の中断,提案否定と混ぜない,S1
 type,external_event,外部要因、環境変化の出来事報告：事実っぽいもの,外部イベントの事実報告を優先して付与,X1
 type,status_update,身体（心理）・生活状況の変化の報告や、質問に対する現状報告（アセスメントへの回答）：自覚,external_eventと迷う場合はexternal_eventを優先しstatus_updateは付けない,SU1

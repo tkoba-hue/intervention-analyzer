@@ -250,37 +250,47 @@ class RuleEngine:
 
     def classify_scope(self, text: str, evidence_type: str | None) -> str:
         """
-        スコープを分類
+        スコープを分類（バイナリ: in_scope / out_of_scope）
+
+        in_scope: 目標行動や生活改善に関する変化表明
+        out_of_scope: 雑談・ラポール・運用関連・外部要因など
         """
-        # goal_related のキーワード
-        goal_keywords = [
-            "運動", "歩", "体操", "筋力",
-            "食", "栄養", "野菜",
-            "睡眠", "寝", "起き",
-            "記憶", "脳トレ",
-            "気分", "不安", "意欲",
-            "外出", "会話", "交流",
+        # スコープ内と判定するキーワード
+        in_scope_keywords = [
+            # 運動関連
+            "運動", "歩", "体操", "筋力", "ストレッチ", "散歩",
+            # 栄養関連
+            "食", "栄養", "野菜", "たんぱく",
+            # 睡眠関連
+            "睡眠", "寝", "起き", "眠",
+            # 認知機能関連
+            "記憶", "脳トレ", "集中",
+            # 精神関連
+            "気分", "不安", "意欲", "やる気",
+            # 社会参加関連
+            "外出", "会話", "交流", "趣味",
         ]
 
-        # ops_related のキーワード
-        ops_keywords = [
-            "設定", "不具合", "エラー", "操作",
-            "ログイン", "パスワード",
+        # スコープ外と判定するキーワード（優先チェック）
+        out_of_scope_keywords = [
+            # 運用関連
+            "設定", "不具合", "エラー", "操作", "ログイン", "パスワード",
+            # 外部要因
+            "天気", "ニュース", "テレビ",
+            # サービス関連
+            "参加", "退会", "解約",
         ]
 
-        # service_related のキーワード
-        service_keywords = [
-            "参加", "継続", "中止", "退会",
-        ]
+        # スコープ外キーワードが含まれていればout_of_scope
+        if any(kw in text for kw in out_of_scope_keywords):
+            return "out_of_scope"
 
-        if any(kw in text for kw in ops_keywords):
-            return "ops_related"
-        if any(kw in text for kw in service_keywords):
-            return "service_related"
-        if any(kw in text for kw in goal_keywords):
-            return "goal_related"
+        # スコープ内キーワードが含まれていればin_scope
+        if any(kw in text for kw in in_scope_keywords):
+            return "in_scope"
 
-        return "rapport_related"
+        # デフォルトはスコープ外
+        return "out_of_scope"
 
     def classify_goal_domain(self, text: str) -> str:
         """
@@ -346,7 +356,7 @@ class RuleEngine:
                 (r"(習慣|日課)に", 0.8),
                 (r"毎日", 0.6),
             ],
-            "outcome_report": [
+            "situation_report": [
                 (r"(変わり|改善し|良くなり)ました", 0.9),
                 (r"(減り|増え|上がり|下がり)ました", 0.85),
                 (r"(効果|結果)が", 0.7),

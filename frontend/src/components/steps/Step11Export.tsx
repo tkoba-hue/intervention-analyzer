@@ -3,6 +3,8 @@
 import { useMemo, useState } from 'react';
 import { useProjectStore, ChatRecord } from '@/store/projectStore';
 
+const STEP_ID = '3-3' as const;
+
 // 日付をWeek番号に変換
 function getWeekNumber(dateStr: string): number {
   const date = new Date(dateStr);
@@ -53,25 +55,25 @@ export default function Step11Export() {
   const { data, projectName, steps } = useProjectStore();
   const [activeTab, setActiveTab] = useState<'summary' | 'patterns' | 'timeline' | 'users' | 'log'>('summary');
 
-  const strictRecords = data.filter((r) => r.evidence_flag_strict);
-  const goalRelatedRecords = strictRecords.filter((r) => r.scope_final === 'goal_related');
+  // スコープ内のエビデンス
+  const inScopeRecords = data.filter((r) => r.evidence_confirm === 1 && r.scope_final === 'in_scope');
 
   // トリガー→エビデンスのペア
   const linkedPairs = useMemo(() => {
-    return strictRecords
+    return inScopeRecords
       .filter((r) => r.linked_prev_id)
       .map((evidence) => {
         const trigger = data.find((r) => r.id === evidence.linked_prev_id);
         return { evidence, trigger };
       })
       .filter((pair) => pair.trigger);
-  }, [strictRecords, data]);
+  }, [inScopeRecords, data]);
 
   // ドメイン別フェーズ遷移
   const domainPhases = useMemo(() => {
     const domains: Record<string, Array<{ id: string; type: string; text: string }>> = {};
 
-    goalRelatedRecords
+    inScopeRecords
       .sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime())
       .forEach((r) => {
         const domain = r.goal_domain_final || 'その他';
@@ -84,12 +86,7 @@ export default function Step11Export() {
       });
 
     return domains;
-  }, [goalRelatedRecords]);
-
-  // goal_relatedのリンクペアのみ
-  const goalRelatedPairs = useMemo(() => {
-    return linkedPairs.filter(({ evidence }) => evidence.scope_final === 'goal_related');
-  }, [linkedPairs]);
+  }, [inScopeRecords]);
 
   // 介入タイプ別成功率（3種類の集計）
   const triggerStats = useMemo(() => {
@@ -113,8 +110,8 @@ export default function Step11Export() {
         }
       });
 
-    // goal_relatedにリンクされたペアから成功をカウント
-    goalRelatedPairs.forEach(({ evidence, trigger }) => {
+    // スコープ内にリンクされたペアから成功をカウント
+    linkedPairs.forEach(({ evidence, trigger }) => {
       if (!trigger?.trigger_type_final) return;
 
       const topTrigger = getHighestPriorityTrigger(trigger.trigger_type_final);
@@ -150,11 +147,8 @@ export default function Step11Export() {
       }
     });
 
-    // ドメイン別のtotal計算（そのドメインへのエビデンスを持つトリガー使用数）
-    // 簡易版: 成功数 = 使用数として表示（正確にはリンク元の全トリガーを追跡する必要あり）
-
     return { overall, byDomain, byUser };
-  }, [data, goalRelatedPairs]);
+  }, [data, linkedPairs]);
 
   // 週別エビデンス数＋トリガー数
   const weeklyStats = useMemo(() => {
@@ -174,13 +168,13 @@ export default function Step11Export() {
       const week = getRelativeWeek(r.datetime, firstDate);
       if (!weeks[week]) weeks[week] = { evidenceTotal: 0, triggerTotal: 0, types: {}, triggers: {} };
 
-      // エビデンス集計
-      if (r.evidence_flag_strict) {
+      // エビデンス集計（スコープ内のみ）
+      if (r.evidence_confirm === 1 && r.scope_final === 'in_scope') {
         weeks[week].evidenceTotal++;
         const type = r.evidence_type_final || 'unknown';
         weeks[week].types[type] = (weeks[week].types[type] || 0) + 1;
 
-        if (r.scope_final === 'goal_related' && r.goal_domain_final) {
+        if (r.goal_domain_final) {
           const domain = r.goal_domain_final;
           if (!domainWeekly[domain]) domainWeekly[domain] = {};
           domainWeekly[domain][week] = (domainWeekly[domain][week] || 0) + 1;
@@ -207,36 +201,37 @@ export default function Step11Export() {
     };
   }, [data]);
 
-  // 工程ログ
+  // 工程ログ（新フェーズ式）
   const processLog = useMemo(() => {
     const excludedCount = data.filter((r) => r.exclude_flag).length;
     const participantCount = data.filter((r) => r.speaker === 'participant' && !r.exclude_flag).length;
     const anchorCount = data.filter((r) => r.evidence_anchor === 1).length;
     const confirmedCount = data.filter((r) => r.evidence_confirm === 1).length;
     const rejectedCount = data.filter((r) => r.evidence_confirm === 0).length;
-    const strictCount = strictRecords.length;
-    const typedCount = strictRecords.filter((r) => r.evidence_type_final).length;
-    const scopedCount = strictRecords.filter((r) => r.scope_final).length;
-    const linkedCount = strictRecords.filter((r) => r.linked_prev_id).length;
-    const domainCount = goalRelatedRecords.filter((r) => r.goal_domain_final).length;
+    const typedCount = data.filter((r) => r.evidence_confirm === 1 && r.evidence_type_final).length;
+    const inScopeCount = inScopeRecords.length;
+    const linkedCount = inScopeRecords.filter((r) => r.linked_prev_id).length;
+    const domainCount = inScopeRecords.filter((r) => r.goal_domain_final).length;
     const otherCount = data.filter((r) => r.speaker === 'other' && !r.exclude_flag).length;
+    const triggerExcludedCount = data.filter((r) => r.speaker === 'other' && r.trigger_excluded).length;
     const triggerAssignedCount = data.filter(
-      (r) => r.speaker === 'other' && !r.exclude_flag && r.trigger_type_final?.length > 0
+      (r) => r.speaker === 'other' && !r.exclude_flag && !r.trigger_excluded && r.trigger_type_final?.length > 0
     ).length;
 
     return [
-      { step: 1, name: '正規化', result: `${data.length}件処理` },
-      { step: 2, name: '除外マーク', result: `${excludedCount}件除外（${data.length - excludedCount}件が分析対象）` },
-      { step: 3, name: 'anchor抽出', result: `${anchorCount}件候補（参加者${participantCount}件中）` },
-      { step: 4, name: 'evidence確定', result: `${confirmedCount}件Yes、${rejectedCount}件No` },
-      { step: 5, name: 'strict判定', result: `${strictCount}件がstrict` },
-      { step: 6, name: 'evidence_type付与', result: `${typedCount}件に付与済` },
-      { step: 7, name: 'scope付与', result: `${scopedCount}件に付与済` },
-      { step: 8, name: 'trigger付与', result: `${triggerAssignedCount}件に付与（other ${otherCount}件中）` },
-      { step: 9, name: '文脈リンク', result: `${linkedCount}件リンク済` },
-      { step: 10, name: 'goal_domain付与', result: `${domainCount}件に付与（goal_related ${goalRelatedRecords.length}件中）` },
+      { step: '1-1', name: '正規化', result: `${data.length}件処理` },
+      { step: '1-2', name: '除外マーク', result: `${excludedCount}件除外（${data.length - excludedCount}件が分析対象）` },
+      { step: '2A-1', name: 'Trigger候補抽出', result: `${otherCount - triggerExcludedCount}件候補（${triggerExcludedCount}件除外）` },
+      { step: '2A-2', name: 'Trigger自動付与', result: `${triggerAssignedCount}件にトリガー付与` },
+      { step: '2A-3', name: 'Trigger確定', result: `${triggerAssignedCount}件確定済` },
+      { step: '2B-1', name: 'Evidence候補抽出', result: `${anchorCount}件候補（参加者${participantCount}件中）` },
+      { step: '2B-2', name: 'Evidence確定', result: `${confirmedCount}件Yes、${rejectedCount}件No` },
+      { step: '2B-3', name: 'Evidence分類', result: `type: ${typedCount}件、スコープ内: ${inScopeCount}件` },
+      { step: '3-1', name: '文脈リンク', result: `${linkedCount}件リンク済（スコープ内${inScopeCount}件中）` },
+      { step: '3-2', name: 'goal_domain', result: `${domainCount}件に付与（スコープ内${inScopeCount}件中）` },
+      { step: '3-3', name: '出力', result: 'レポート生成可能' },
     ];
-  }, [data, strictRecords, goalRelatedRecords]);
+  }, [data, inScopeRecords]);
 
   // CSV/JSONエクスポート
   const handleExportCSV = () => {
@@ -246,7 +241,7 @@ export default function Step11Export() {
       'linked_prev_id', 'linked_trigger_type',
     ];
 
-    const rows = strictRecords.map((record) => {
+    const rows = inScopeRecords.map((record) => {
       const linkedRecord = record.linked_prev_id
         ? data.find((r) => r.id === record.linked_prev_id)
         : null;
@@ -275,7 +270,7 @@ export default function Step11Export() {
   };
 
   const handleExportJSON = () => {
-    const exportData = strictRecords.map((record) => {
+    const exportData = inScopeRecords.map((record) => {
       const linkedRecord = record.linked_prev_id
         ? data.find((r) => r.id === record.linked_prev_id)
         : null;
@@ -309,13 +304,13 @@ export default function Step11Export() {
   };
 
   // 集計
-  const typeCounts = strictRecords.reduce((acc, r) => {
+  const typeCounts = inScopeRecords.reduce((acc, r) => {
     const type = r.evidence_type_final || 'unknown';
     acc[type] = (acc[type] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
 
-  const domainCounts = goalRelatedRecords.reduce((acc, r) => {
+  const domainCounts = inScopeRecords.reduce((acc, r) => {
     const domain = r.goal_domain_final || 'unknown';
     acc[domain] = (acc[domain] || 0) + 1;
     return acc;
@@ -325,7 +320,7 @@ export default function Step11Export() {
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Step 11: 整形・出力</h2>
+      <h2 className="text-2xl font-bold mb-4">3-3: 整形・出力</h2>
       <p className="text-gray-600 mb-6">
         分析結果のレポートとエクスポート
       </p>
@@ -392,8 +387,8 @@ export default function Step11Export() {
 
             <div className="mt-4 pt-4 border-t flex items-center gap-4">
               <div>
-                <span className="text-gray-500">エビデンス総数:</span>
-                <span className="ml-2 font-bold text-lg">{strictRecords.length}</span>
+                <span className="text-gray-500">スコープ内エビデンス:</span>
+                <span className="ml-2 font-bold text-lg">{inScopeRecords.length}</span>
               </div>
               <div>
                 <span className="text-gray-500">分野:</span>
@@ -422,13 +417,13 @@ export default function Step11Export() {
               </div>
             ))}
             {Object.keys(domainPhases).length === 0 && (
-              <p className="text-gray-500 text-sm">goal_related のエビデンスがありません</p>
+              <p className="text-gray-500 text-sm">スコープ内のエビデンスがありません</p>
             )}
           </div>
 
           {/* 介入タイプ別成功率（全体集計） */}
           <div className="bg-green-50 rounded-lg p-4">
-            <h3 className="font-medium mb-4">介入タイプ別 成功率（goal_related のみ）</h3>
+            <h3 className="font-medium mb-4">介入タイプ別 成功率（スコープ内のみ）</h3>
             <p className="text-xs text-gray-500 mb-3">
               ※ P1（実行提案/根拠提示/リフレーミング）&gt; P2（行動継続後押し）&gt; P3 の優先度で最上位のみカウント
             </p>
@@ -489,33 +484,9 @@ export default function Step11Export() {
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500 text-sm">goal_related のリンクデータがありません</p>
+              <p className="text-gray-500 text-sm">スコープ内のリンクデータがありません</p>
             )}
           </div>
-
-          {/* ユーザーID別集計 */}
-          {Object.keys(triggerStats.byUser).length > 0 && (
-            <div className="bg-purple-50 rounded-lg p-4">
-              <h3 className="font-medium mb-4">ユーザーID別 集計</h3>
-              <div className="space-y-4">
-                {Object.entries(triggerStats.byUser).map(([userId, userData]) => (
-                  <div key={userId} className="border-b border-purple-100 pb-3 last:border-0">
-                    <h4 className="text-sm font-medium text-purple-800 mb-2">ID: {userId}</h4>
-                    <div className="pl-4 space-y-1 text-sm">
-                      {Object.entries(userData.triggers).map(([type, stats]) => (
-                        <div key={type} className="text-gray-700">
-                          {type}: {stats.success}件成功
-                        </div>
-                      ))}
-                      <div className="text-gray-600 mt-1">
-                        ドメイン: {Object.entries(userData.domains).map(([d, c]) => `${d}(${c})`).join(', ')}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* エクスポートボタン */}
           <div className="flex gap-4">
@@ -688,7 +659,7 @@ export default function Step11Export() {
                 </table>
               </div>
             ) : (
-              <p className="text-gray-500 text-sm">goal_related のエビデンスがありません</p>
+              <p className="text-gray-500 text-sm">スコープ内のエビデンスがありません</p>
             )}
           </div>
 
@@ -740,12 +711,9 @@ export default function Step11Export() {
           {Object.keys(triggerStats.byUser).length > 0 ? (
             Object.entries(triggerStats.byUser).map(([userId, userData]) => {
               // このユーザーのエビデンスを時系列で取得
-              const userEvidence = goalRelatedRecords
+              const userEvidence = inScopeRecords
                 .filter((r) => r.user_id === userId)
                 .sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
-
-              // このユーザーのリンクペアを取得
-              const userPairs = goalRelatedPairs.filter(({ evidence }) => evidence.user_id === userId);
 
               return (
                 <div key={userId} className="bg-white border rounded-lg p-4">
@@ -833,11 +801,18 @@ export default function Step11Export() {
       {/* 工程ログタブ */}
       {activeTab === 'log' && (
         <div className="bg-gray-50 rounded-lg p-4">
-          <h3 className="font-medium mb-4">分析工程ログ</h3>
+          <h3 className="font-medium mb-4">分析工程ログ（フェーズ式）</h3>
           <div className="space-y-2 font-mono text-sm">
             {processLog.map((log) => (
               <div key={log.step} className="flex">
-                <span className="text-gray-500 w-32">Step {log.step}: {log.name}</span>
+                <span className={`w-16 ${
+                  log.step.startsWith('2A') ? 'text-blue-600' :
+                  log.step.startsWith('2B') ? 'text-green-600' :
+                  'text-gray-500'
+                }`}>
+                  {log.step}
+                </span>
+                <span className="text-gray-500 w-32">{log.name}</span>
                 <span className="text-gray-400 mx-2">→</span>
                 <span className="text-gray-800">{log.result}</span>
               </div>

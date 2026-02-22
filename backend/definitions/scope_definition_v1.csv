@@ -1,6 +1,3 @@
 scope,定義
-goal_related,目標カテゴリに関する実施、継続意思、計画、障壁、変化、自己効力感が含まれる
-rapport_related,ラポール形成や関係維持が主目的
-ops_related,運用案内や手続きなど、業務運用が主
-troubleshooting_only,障害対応のみが主
-other,上記以外
+in_scope,目標行動や生活改善に関する変化表明（分析対象）
+out_of_scope,雑談・ラポール・運用関連・外部要因など（分析対象外）

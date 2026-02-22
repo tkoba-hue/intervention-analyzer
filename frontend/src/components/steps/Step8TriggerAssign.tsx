@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useProjectStore } from '@/store/projectStore';
+import { useState, useMemo, useEffect } from 'react';
+import { useProjectStore, PhaseStepId } from '@/store/projectStore';
 import { api } from '@/lib/api';
+import { useParams } from 'next/navigation';
+import StepExplanation from '@/components/common/StepExplanation';
 
 const TRIGGER_TYPES = [
   { value: '実行提案', priority: 1, description: '具体策を提案する' },
@@ -15,24 +17,44 @@ const TRIGGER_TYPES = [
   { value: '運用案内', priority: 3, description: 'システム案内等' },
 ];
 
+// フェーズとステップIDのマッピング
+const PHASE_TO_STEP: Record<string, PhaseStepId> = {
+  'exclude': '2A-1',
+  'auto': '2A-2',
+  'review': '2A-3',
+};
+
 type Phase = 'exclude' | 'auto' | 'review';
 
 export default function Step8TriggerAssign() {
+  const params = useParams();
+  const currentStepId = params.step as PhaseStepId;
+
   const { steps, data, updateRecord, bulkUpdateRecords, updateStepStatus, updateStepProgress } = useProjectStore();
-  const step = steps[8];
-  const [phase, setPhase] = useState<Phase>('exclude');
+
+  // URLのステップIDに基づいてフェーズを決定
+  const getPhaseFromStepId = (stepId: PhaseStepId): Phase => {
+    if (stepId === '2A-1') return 'exclude';
+    if (stepId === '2A-2') return 'auto';
+    if (stepId === '2A-3') return 'review';
+    return 'exclude';
+  };
+
+  const [phase, setPhase] = useState<Phase>(getPhaseFromStepId(currentStepId));
+
+  useEffect(() => {
+    setPhase(getPhaseFromStepId(currentStepId));
+  }, [currentStepId]);
+
+  const currentPhaseStepId = PHASE_TO_STEP[phase];
+  const step = steps[currentPhaseStepId];
 
   const otherRecords = data.filter((r) => r.speaker === 'other' && !r.exclude_flag);
-
-  // 除外対象（トリガーなしでマークされたもの）
   const excludedRecords = otherRecords.filter((r) => r.trigger_excluded);
-
-  // 自動付与済み
   const assignedRecords = otherRecords.filter((r) =>
     !r.trigger_excluded && r.trigger_type_final.length > 0
   );
 
-  // 確信度が低い順にソート（目視修正用）
   const lowConfidenceRecords = useMemo(() => {
     return [...assignedRecords]
       .filter((r) => (r.trigger_type_confidence ?? 1) < 0.7)
@@ -40,7 +62,6 @@ export default function Step8TriggerAssign() {
       .slice(0, 50);
   }, [assignedRecords]);
 
-  // 統計
   const p1Count = assignedRecords.filter((r) =>
     r.trigger_type_final.some((t) => ['実行提案', '根拠提示', 'リフレーミング'].includes(t))
   ).length;
@@ -51,11 +72,10 @@ export default function Step8TriggerAssign() {
     r.trigger_type_final.some((t) => ['承認', 'ラポール形成', '情報収集', '運用案内'].includes(t))
   ).length;
 
-  // 8-1: 除外判定
+  // 2A-1: 候補抽出（除外判定）
   const handleExclude = async () => {
-    updateStepStatus(8, 'in_progress');
+    updateStepStatus('2A-1', 'in_progress');
 
-    // スタンプのみ、短文などを除外
     const updates = otherRecords.map((r) => {
       const text = r.text_raw;
       const isExcluded =
@@ -69,11 +89,15 @@ export default function Step8TriggerAssign() {
     });
 
     bulkUpdateRecords(updates);
+    updateStepProgress('2A-1', otherRecords.length, otherRecords.length);
+    updateStepStatus('2A-1', 'completed');
     setPhase('auto');
   };
 
-  // 8-2: 自動付与
+  // 2A-2: 自動付与
   const handleAutoAssign = async () => {
+    updateStepStatus('2A-2', 'in_progress');
+
     try {
       const response = await api.classifyTriggers(data);
 
@@ -85,13 +109,16 @@ export default function Step8TriggerAssign() {
       }));
 
       bulkUpdateRecords(updates);
+      updateStepProgress('2A-2', otherRecords.length - excludedRecords.length, otherRecords.length - excludedRecords.length);
+      updateStepStatus('2A-2', 'completed');
       setPhase('review');
     } catch (error) {
       console.error('Classify triggers error:', error);
+      updateStepStatus('2A-2', 'pending');
     }
   };
 
-  // 8-3: 目視修正
+  // 2A-3: 確定（目視修正）
   const handleTriggerChange = (id: string, triggers: string[]) => {
     updateRecord(id, {
       trigger_type_override: triggers,
@@ -99,13 +126,11 @@ export default function Step8TriggerAssign() {
     });
   };
 
-  // 完了
   const handleComplete = () => {
-    updateStepProgress(8, otherRecords.length, otherRecords.length);
-    updateStepStatus(8, 'completed');
+    updateStepProgress('2A-3', assignedRecords.length, assignedRecords.length);
+    updateStepStatus('2A-3', 'completed');
   };
 
-  // 一括クリア
   const handleClear = () => {
     if (!confirm('全てクリアしますか？')) return;
     const updates = otherRecords.map((r) => ({
@@ -117,38 +142,64 @@ export default function Step8TriggerAssign() {
       trigger_type_confidence: undefined,
     }));
     bulkUpdateRecords(updates);
-    updateStepStatus(8, 'pending');
-    updateStepProgress(8, 0, otherRecords.length);
+    updateStepStatus('2A-1', 'pending');
+    updateStepStatus('2A-2', 'pending');
+    updateStepStatus('2A-3', 'pending');
+    updateStepProgress('2A-1', 0, otherRecords.length);
+    updateStepProgress('2A-2', 0, otherRecords.length);
+    updateStepProgress('2A-3', 0, otherRecords.length);
     setPhase('exclude');
   };
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Step 8: trigger 付与</h2>
+      <h2 className="text-2xl font-bold mb-4">
+        <span className="text-blue-600">🔵</span> P2A: Trigger 処理
+      </h2>
+
+      <StepExplanation title="機械がやること" defaultExpanded={false}>
+        <div className="space-y-2 text-sm">
+          <p><strong>2A-1 候補抽出:</strong> スタンプのみ、短文など明らかにトリガーでないものを除外</p>
+          <p><strong>2A-2 自動付与:</strong> キーワードパターンでトリガータイプを自動付与</p>
+          <p><strong>2A-3 確定:</strong> 確信度が低いもの（70%未満）を人間が確認・修正</p>
+        </div>
+        <div className="mt-3 p-3 bg-blue-50 rounded text-sm">
+          <strong>確認ポイント:</strong> 介入者の発話にどのようなトリガー（働きかけ）が含まれているかを判定します。
+        </div>
+      </StepExplanation>
 
       {/* フェーズインジケーター */}
       <div className="flex gap-2 mb-6">
         {[
-          { key: 'exclude', label: '8-1: 除外判定' },
-          { key: 'auto', label: '8-2: 自動付与' },
-          { key: 'review', label: '8-3: 目視修正' },
-        ].map((p, i) => (
-          <button
-            key={p.key}
-            onClick={() => setPhase(p.key as Phase)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium ${
-              phase === p.key
-                ? 'bg-blue-500 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
+          { key: 'exclude', label: '2A-1: 候補抽出', stepId: '2A-1' as PhaseStepId },
+          { key: 'auto', label: '2A-2: 自動付与', stepId: '2A-2' as PhaseStepId },
+          { key: 'review', label: '2A-3: 確定', stepId: '2A-3' as PhaseStepId },
+        ].map((p) => {
+          const pStep = steps[p.stepId];
+          const isCompleted = pStep?.status === 'completed';
+          const isCurrent = phase === p.key;
+
+          return (
+            <button
+              key={p.key}
+              onClick={() => setPhase(p.key as Phase)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 ${
+                isCurrent
+                  ? 'bg-blue-500 text-white'
+                  : isCompleted
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {isCompleted && <span>✓</span>}
+              {p.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* 統計 */}
-      <div className="bg-gray-50 rounded-lg p-4 mb-6">
+      <div className="bg-blue-50 rounded-lg p-4 mb-6">
         <div className="grid grid-cols-4 gap-4 text-sm">
           <div>
             <span className="text-gray-500">other発話:</span>
@@ -160,7 +211,7 @@ export default function Step8TriggerAssign() {
           </div>
           <div>
             <span className="text-gray-500">付与済:</span>
-            <span className="ml-2 font-medium text-green-600">{assignedRecords.length}</span>
+            <span className="ml-2 font-medium text-blue-600">{assignedRecords.length}</span>
           </div>
           <div>
             <span className="text-gray-500">要確認:</span>
@@ -168,7 +219,7 @@ export default function Step8TriggerAssign() {
           </div>
         </div>
         {assignedRecords.length > 0 && (
-          <div className="mt-3 pt-3 border-t flex gap-4 text-sm">
+          <div className="mt-3 pt-3 border-t border-blue-200 flex gap-4 text-sm">
             <span className="text-red-600 font-medium">P1: {p1Count}件</span>
             <span className="text-amber-600 font-medium">P2: {p2Count}件</span>
             <span className="text-gray-600 font-medium">P3: {p3Count}件</span>
@@ -176,7 +227,7 @@ export default function Step8TriggerAssign() {
         )}
       </div>
 
-      {/* 8-1: 除外判定 */}
+      {/* 2A-1: 候補抽出 */}
       {phase === 'exclude' && (
         <div>
           <p className="text-gray-600 mb-4">
@@ -186,12 +237,12 @@ export default function Step8TriggerAssign() {
             onClick={handleExclude}
             className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
           >
-            除外判定を実行
+            候補抽出を実行
           </button>
         </div>
       )}
 
-      {/* 8-2: 自動付与 */}
+      {/* 2A-2: 自動付与 */}
       {phase === 'auto' && (
         <div>
           <p className="text-gray-600 mb-4">
@@ -211,7 +262,7 @@ export default function Step8TriggerAssign() {
         </div>
       )}
 
-      {/* 8-3: 目視修正 */}
+      {/* 2A-3: 確定 */}
       {phase === 'review' && (
         <div>
           <p className="text-gray-600 mb-4">
@@ -220,15 +271,15 @@ export default function Step8TriggerAssign() {
           </p>
 
           {lowConfidenceRecords.length === 0 ? (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-              <p className="text-green-700">確信度が低い項目はありません。</p>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+              <p className="text-blue-700">確信度が低い項目はありません。</p>
             </div>
           ) : (
             <div className="space-y-3 mb-6">
               {lowConfidenceRecords.map((record) => {
                 const confidence = record.trigger_type_confidence ?? 0;
                 return (
-                  <div key={record.id} className="border rounded-lg p-3 bg-white">
+                  <div key={record.id} className="border border-blue-200 rounded-lg p-3 bg-white">
                     <div className="flex justify-between items-start mb-2">
                       <span className="text-xs text-gray-400">#{record.id}</span>
                       <span className={`text-xs px-2 py-0.5 rounded ${
@@ -254,7 +305,7 @@ export default function Step8TriggerAssign() {
                               isSelected
                                 ? type.priority === 1 ? 'bg-red-500 text-white' :
                                   type.priority === 2 ? 'bg-amber-500 text-white' :
-                                  'bg-gray-500 text-white'
+                                  'bg-blue-500 text-white'
                                 : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                             }`}
                           >
@@ -272,7 +323,7 @@ export default function Step8TriggerAssign() {
           <div className="flex gap-4">
             <button
               onClick={handleComplete}
-              className="px-6 py-2 rounded-lg font-medium bg-green-500 hover:bg-green-600 text-white"
+              className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
             >
               完了
             </button>

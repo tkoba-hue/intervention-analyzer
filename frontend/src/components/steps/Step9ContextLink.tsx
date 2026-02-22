@@ -3,6 +3,8 @@
 import { useProjectStore } from '@/store/projectStore';
 import StepExplanation from '@/components/common/StepExplanation';
 
+const STEP_ID = '3-1' as const;
+
 const TRIGGER_TYPES = [
   { value: '実行提案', priority: 1 },
   { value: '根拠提示', priority: 1 },
@@ -16,15 +18,16 @@ const TRIGGER_TYPES = [
 
 export default function Step9ContextLink() {
   const { steps, data, updateRecord, bulkUpdateRecords, updateStepStatus, updateStepProgress } = useProjectStore();
-  const step = steps[9];
+  const step = steps[STEP_ID];
 
-  const strictRecords = data.filter((r) => r.evidence_flag_strict);
-  const linkedCount = strictRecords.filter((r) => r.linked_prev_id).length;
+  // スコープ内のエビデンスのみ対象
+  const targetRecords = data.filter((r) => r.evidence_confirm === 1 && r.scope_final === 'in_scope');
+  const linkedCount = targetRecords.filter((r) => r.linked_prev_id).length;
 
   const handleAutoLink = () => {
-    updateStepStatus(9, 'in_progress');
+    updateStepStatus(STEP_ID, 'in_progress');
 
-    strictRecords.forEach((record) => {
+    targetRecords.forEach((record) => {
       const index = data.findIndex((r) => r.id === record.id);
       if (index > 0) {
         for (let i = index - 1; i >= 0; i--) {
@@ -36,8 +39,8 @@ export default function Step9ContextLink() {
       }
     });
 
-    updateStepProgress(9, strictRecords.length, strictRecords.length);
-    updateStepStatus(9, 'completed');
+    updateStepProgress(STEP_ID, targetRecords.length, targetRecords.length);
+    updateStepStatus(STEP_ID, 'completed');
   };
 
   const getLinkedRecord = (id: string) => {
@@ -64,33 +67,27 @@ export default function Step9ContextLink() {
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Step 9: 文脈リンク</h2>
+      <h2 className="text-2xl font-bold mb-4">3-1: 文脈リンク</h2>
       <p className="text-gray-600 mb-6">
         エビデンスと介入側発話をリンクします。
-        トリガーはStep 8で確定済みです。
+        Trigger（2A）とEvidence（2B）の処理が完了したデータを統合します。
       </p>
 
-      <StepExplanation title="このステップの目的" defaultExpanded={false}>
-        <div>
-          <h4 className="font-medium text-gray-800 mb-2">文脈リンク</h4>
-          <p>
-            参加者の変化表明（エビデンス）と、それを引き出した介入側の発話を紐付けます。
-            基本は直前のother発話が自動選択されます。
-          </p>
+      <StepExplanation title="機械がやること" defaultExpanded={false}>
+        <div className="space-y-2 text-sm">
+          <p><strong>1. 自動リンク:</strong> 各エビデンスの直前にあるother発話を自動選択</p>
+          <p><strong>2. 手動修正:</strong> リンク先が適切でない場合は手動で変更可能</p>
         </div>
-        <div>
-          <h4 className="font-medium text-gray-800 mb-2">リンクしない場合</h4>
-          <p>
-            介入とは無関係に参加者が自発的に報告した場合は「リンクなし」を選択できます。
-          </p>
+        <div className="mt-3 p-3 bg-blue-50 rounded text-sm">
+          <strong>確認ポイント:</strong> 介入とは無関係に参加者が自発的に報告した場合は「リンクなし」を選択できます。
         </div>
       </StepExplanation>
 
       <div className="bg-gray-50 rounded-lg p-4 mb-6">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <span className="text-gray-500">対象件数:</span>
-            <span className="ml-2 font-medium">{strictRecords.length}</span>
+            <span className="text-gray-500">対象件数（スコープ内）:</span>
+            <span className="ml-2 font-medium">{targetRecords.length}</span>
           </div>
           <div>
             <span className="text-gray-500">リンク済:</span>
@@ -102,20 +99,21 @@ export default function Step9ContextLink() {
       <div className="flex gap-4 mb-6">
         <button
           onClick={handleAutoLink}
-          className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
+          disabled={step?.status === 'in_progress' || targetRecords.length === 0}
+          className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
         >
           自動リンク実行
         </button>
         <button
           onClick={() => {
             if (!confirm('リンクをクリアしますか？')) return;
-            const updates = strictRecords.map((r) => ({
+            const updates = targetRecords.map((r) => ({
               id: r.id,
               linked_prev_id: undefined,
             }));
             bulkUpdateRecords(updates);
-            updateStepStatus(9, 'pending');
-            updateStepProgress(9, 0, strictRecords.length);
+            updateStepStatus(STEP_ID, 'pending');
+            updateStepProgress(STEP_ID, 0, targetRecords.length);
           }}
           className="px-6 py-2 rounded-lg font-medium bg-gray-500 hover:bg-gray-600 text-white"
         >
@@ -124,7 +122,7 @@ export default function Step9ContextLink() {
       </div>
 
       <div className="space-y-6">
-        {strictRecords.map((record) => {
+        {targetRecords.map((record) => {
           const linkedRecord = record.linked_prev_id
             ? getLinkedRecord(record.linked_prev_id)
             : null;
@@ -134,7 +132,19 @@ export default function Step9ContextLink() {
           return (
             <div key={record.id} className="border rounded-lg p-4 bg-white">
               <div className="flex justify-between items-start mb-2">
-                <span className="text-xs text-gray-400">エビデンス #{record.id}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">エビデンス #{record.id}</span>
+                  {record.evidence_type_final && (
+                    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                      {record.evidence_type_final}
+                    </span>
+                  )}
+                  {record.goal_domain_final && (
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                      {record.goal_domain_final}
+                    </span>
+                  )}
+                </div>
                 <span className="text-xs text-gray-500">{record.datetime}</span>
               </div>
 
@@ -191,6 +201,12 @@ export default function Step9ContextLink() {
           );
         })}
       </div>
+
+      {targetRecords.length === 0 && (
+        <p className="text-gray-500">
+          対象がありません。2B-3（Evidence分類）でスコープ内のエビデンスを確定してください。
+        </p>
+      )}
     </div>
   );
 }

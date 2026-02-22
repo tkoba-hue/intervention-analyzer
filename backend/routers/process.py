@@ -270,7 +270,7 @@ async def classify_goal_domain(request: dict):
     for record in records:
         result = dict(record)
 
-        if record.get("scope_final") == "goal_related":
+        if record.get("scope_final") == "in_scope":
             text = record.get("text_norm") or record.get("text_raw", "")
             domain = rule_engine.classify_goal_domain(text)
 

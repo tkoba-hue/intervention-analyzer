@@ -39,10 +39,12 @@ function HighlightedText({ text, patterns }: { text: string; patterns?: string[]
   );
 }
 
+const STEP_ID = '2B-2' as const;
+
 export default function Step4EvidenceConfirm() {
   const { steps, data, updateRecord, bulkUpdateRecords, updateStepStatus, updateStepProgress } = useProjectStore();
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const step = steps[4];
+  const step = steps[STEP_ID];
 
   // evidence_anchor=1 の行のみ表示（確信度低い順にソート）
   const candidates = data
@@ -60,8 +62,8 @@ export default function Step4EvidenceConfirm() {
       evidence_confirm: 1,
     }));
     bulkUpdateRecords(updates);
-    updateStepProgress(4, candidates.length, candidates.length);
-    updateStepStatus(4, 'completed');
+    updateStepProgress(STEP_ID, candidates.length, candidates.length);
+    updateStepStatus(STEP_ID, 'completed');
   };
 
   const handleConfirm = (id: string, confirm: number, reason?: string) => {
@@ -75,11 +77,11 @@ export default function Step4EvidenceConfirm() {
     ).length;
 
     if (newPending === 0) {
-      updateStepStatus(4, 'completed');
+      updateStepStatus(STEP_ID, 'completed');
     } else {
-      updateStepStatus(4, 'in_progress');
+      updateStepStatus(STEP_ID, 'in_progress');
     }
-    updateStepProgress(4, candidates.length - newPending, candidates.length);
+    updateStepProgress(STEP_ID, candidates.length - newPending, candidates.length);
   };
 
   const getContext = (recordId: string) => {
@@ -101,7 +103,9 @@ export default function Step4EvidenceConfirm() {
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Step 4: evidence 確定</h2>
+      <h2 className="text-2xl font-bold mb-4">
+        <span className="text-green-600">🟢</span> 2B-2: Evidence 確定
+      </h2>
       <p className="text-gray-600 mb-6">
         候補として抽出された発話を確認し、本当にエビデンス（変化の表明）かどうかを判定します。
         確信度が低いものから順に表示しています。
@@ -176,8 +180,8 @@ export default function Step4EvidenceConfirm() {
               evidence_reason_if0: undefined,
             }));
             bulkUpdateRecords(updates);
-            updateStepStatus(4, 'pending');
-            updateStepProgress(4, 0, candidates.length);
+            updateStepStatus(STEP_ID, 'pending');
+            updateStepProgress(STEP_ID, 0, candidates.length);
           }}
           className="px-6 py-2 bg-gray-500 text-white rounded-lg font-medium hover:bg-gray-600"
         >

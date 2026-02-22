@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useProjectStore } from '@/store/projectStore';
 import { api } from '@/lib/api';
 import StepExplanation from '@/components/common/StepExplanation';
+
+const STEP_ID = '2B-3' as const;
 
 const EVIDENCE_TYPES = [
   { value: 'awareness', label: '気づき (awareness)', description: '気づき、理解、納得の表明' },
@@ -13,30 +15,49 @@ const EVIDENCE_TYPES = [
   { value: 'continuation', label: '継続 (continuation)', description: '継続の表明' },
   { value: 'barrier', label: '障壁 (barrier)', description: '障壁やできない理由の表明' },
   { value: 'self_efficacy', label: '自己効力感 (self_efficacy)', description: 'できそう、自信等' },
-  { value: 'outcome_report', label: '結果報告 (outcome_report)', description: '結果や変化の報告' },
+  { value: 'situation_report', label: '状況報告 (situation_report)', description: '結果や変化の報告' },
   { value: 'external_event', label: '外部要因 (external_event)', description: '外部要因、環境変化の出来事報告' },
+];
+
+const SCOPE_OPTIONS = [
+  { value: 'in_scope', label: 'スコープ内', description: '目標行動や生活改善に関する変化表明' },
+  { value: 'out_of_scope', label: 'スコープ外', description: '雑談・ラポール・運用関連・外部要因' },
 ];
 
 export default function Step6EvidenceType() {
   const { steps, data, updateRecord, bulkUpdateRecords, updateStepStatus, updateStepProgress } = useProjectStore();
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const step = steps[6];
+  const [viewMode, setViewMode] = useState<'pending' | 'all'>('pending');
+  const step = steps[STEP_ID];
 
-  // 確信度が低い順にソート（Step 4と同じ方式）
-  const strictRecords = data
-    .filter((r) => r.evidence_flag_strict)
-    .sort((a, b) => (a.evidence_type_confidence || 0) - (b.evidence_type_confidence || 0));
-  const assignedCount = strictRecords.filter((r) => r.evidence_type_final).length;
-  const autoClassifiedCount = strictRecords.filter((r) => r.evidence_type_auto).length;
+  // evidence_confirm=1 の行（確定したエビデンス）
+  const confirmedRecords = useMemo(() => {
+    return data
+      .filter((r) => r.evidence_confirm === 1)
+      .sort((a, b) => (a.evidence_type_confidence || 0) - (b.evidence_type_confidence || 0));
+  }, [data]);
 
-  // 自動判定実行
+  const assignedCount = confirmedRecords.filter((r) => r.evidence_type_final && r.scope_final).length;
+  const typeAssignedCount = confirmedRecords.filter((r) => r.evidence_type_final).length;
+  const scopeAssignedCount = confirmedRecords.filter((r) => r.scope_final).length;
+  const inScopeCount = confirmedRecords.filter((r) => r.scope_final === 'in_scope').length;
+
+  // 表示対象を絞り込み
+  const displayRecords = useMemo(() => {
+    if (viewMode === 'pending') {
+      return confirmedRecords.filter((r) => !r.evidence_type_final || !r.scope_final);
+    }
+    return confirmedRecords;
+  }, [confirmedRecords, viewMode]);
+
+  // 自動判定実行（type + scope 両方）
   const handleAutoProcess = async () => {
-    updateStepStatus(6, 'in_progress');
+    updateStepStatus(STEP_ID, 'in_progress');
 
     try {
-      const response = await api.classifyEvidenceType(data);
-
-      const updates = response.records
+      // Evidence Type 自動分類
+      const typeResponse = await api.classifyEvidenceType(data);
+      const typeUpdates = typeResponse.records
         .filter((r) => r.evidence_type_auto)
         .map((r) => ({
           id: r.id,
@@ -44,18 +65,24 @@ export default function Step6EvidenceType() {
           evidence_type_confidence: r.evidence_type_confidence,
           evidence_type_final: r.evidence_type_final,
         }));
+      bulkUpdateRecords(typeUpdates);
 
-      bulkUpdateRecords(updates);
+      // Scope 自動分類
+      const scopeResponse = await api.classifyScope(data);
+      const scopeUpdates = scopeResponse.records
+        .filter((r) => r.scope_auto)
+        .map((r) => ({
+          id: r.id,
+          scope_auto: r.scope_auto,
+          scope_final: r.scope_final,
+        }));
+      bulkUpdateRecords(scopeUpdates);
 
-      const newAssigned = response.records.filter((r) => r.evidence_type_final).length;
-      updateStepProgress(6, newAssigned, strictRecords.length);
-
-      if (newAssigned === strictRecords.length) {
-        updateStepStatus(6, 'completed');
-      }
+      updateStepProgress(STEP_ID, confirmedRecords.length, confirmedRecords.length);
+      updateStepStatus(STEP_ID, 'completed');
     } catch (error) {
-      console.error('Classify evidence type error:', error);
-      updateStepStatus(6, 'pending');
+      console.error('Classify error:', error);
+      updateStepStatus(STEP_ID, 'pending');
     }
   };
 
@@ -71,128 +98,178 @@ export default function Step6EvidenceType() {
 
   const handleTypeChange = (id: string, type: string) => {
     updateRecord(id, { evidence_type_final: type });
+    checkCompletion();
+  };
 
-    const newAssigned = strictRecords.filter(
-      (r) => r.id === id || r.evidence_type_final
+  const handleScopeChange = (id: string, scope: string) => {
+    updateRecord(id, { scope_final: scope });
+    checkCompletion();
+  };
+
+  const checkCompletion = () => {
+    const newAssigned = confirmedRecords.filter(
+      (r) => r.evidence_type_final && r.scope_final
     ).length;
 
-    if (newAssigned === strictRecords.length) {
-      updateStepStatus(6, 'completed');
+    if (newAssigned === confirmedRecords.length) {
+      updateStepStatus(STEP_ID, 'completed');
     } else {
-      updateStepStatus(6, 'in_progress');
+      updateStepStatus(STEP_ID, 'in_progress');
     }
-    updateStepProgress(6, newAssigned, strictRecords.length);
+    updateStepProgress(STEP_ID, newAssigned, confirmedRecords.length);
+  };
+
+  const handleClear = () => {
+    if (!confirm('タイプとスコープを全てクリアしますか？')) return;
+    const updates = confirmedRecords.map((r) => ({
+      id: r.id,
+      evidence_type_auto: undefined,
+      evidence_type_confidence: undefined,
+      evidence_type_final: undefined,
+      scope_auto: undefined,
+      scope_final: undefined,
+    }));
+    bulkUpdateRecords(updates);
+    updateStepStatus(STEP_ID, 'pending');
+    updateStepProgress(STEP_ID, 0, confirmedRecords.length);
   };
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Step 6: evidence_type 付与</h2>
+      <h2 className="text-2xl font-bold mb-4">
+        <span className="text-green-600">🟢</span> 2B-3: Evidence 分類
+      </h2>
       <p className="text-gray-600 mb-6">
-        確定したエビデンス（strict行）に種類を付与します。
+        確定したエビデンスに種類（type）とスコープ（内/外）を付与します。
       </p>
 
-      <StepExplanation title="このステップの目的と判断基準" defaultExpanded={false}>
-        <div>
-          <h4 className="font-medium text-gray-800 mb-2">目的</h4>
-          <p>
-            確定したエビデンスを行動変容のフェーズで分類します。
-            これにより「どの段階の変化か」を可視化できます。
-          </p>
+      <StepExplanation title="機械がやること" defaultExpanded={false}>
+        <div className="space-y-2 text-sm">
+          <p><strong>1. evidence_type 判定:</strong> パターンから変化の種類を自動分類</p>
+          <p><strong>2. scope 判定:</strong> 目標行動に関連するか（スコープ内）or 雑談等（スコープ外）を判定</p>
+          <p><strong>3. 確信度表示:</strong> 確信度が低いものから表示し、人間が優先確認</p>
         </div>
-        <div>
-          <h4 className="font-medium text-gray-800 mb-2">分類の優先度</h4>
-          <ol className="list-decimal list-inside space-y-1">
-            <li><strong>action_report（実行報告）</strong>: 実際に行動した報告</li>
-            <li><strong>plan（計画）</strong>: 具体的な行動計画</li>
-            <li><strong>intention（意思）</strong>: やる意思はあるが具体性なし</li>
-            <li><strong>awareness（気づき）</strong>: 理解・納得の表明</li>
-          </ol>
-        </div>
-        <div>
-          <h4 className="font-medium text-gray-800 mb-2">迷った場合</h4>
-          <p>前後の文脈を確認してください。直前の介入側の発話が判断の手がかりになります。</p>
+        <div className="mt-3 p-3 bg-green-50 rounded text-sm">
+          <strong>確認ポイント:</strong> 「スコープ内」のエビデンスのみが後続分析の対象になります。
         </div>
       </StepExplanation>
 
-      <div className="bg-gray-50 rounded-lg p-4 mb-6">
-        <div className="grid grid-cols-3 gap-4">
+      <div className="bg-green-50 rounded-lg p-4 mb-6">
+        <div className="grid grid-cols-4 gap-4 text-sm">
           <div>
-            <span className="text-gray-500">対象件数:</span>
-            <span className="ml-2 font-medium">{strictRecords.length}</span>
+            <span className="text-gray-500">確定エビデンス:</span>
+            <span className="ml-2 font-medium">{confirmedRecords.length}</span>
           </div>
           <div>
-            <span className="text-gray-500">自動判定済:</span>
-            <span className="ml-2 font-medium text-blue-600">{autoClassifiedCount}</span>
+            <span className="text-gray-500">type付与済:</span>
+            <span className="ml-2 font-medium text-blue-600">{typeAssignedCount}</span>
           </div>
           <div>
-            <span className="text-gray-500">確定済:</span>
-            <span className="ml-2 font-medium text-green-600">{assignedCount}</span>
+            <span className="text-gray-500">scope付与済:</span>
+            <span className="ml-2 font-medium text-purple-600">{scopeAssignedCount}</span>
+          </div>
+          <div>
+            <span className="text-gray-500">スコープ内:</span>
+            <span className="ml-2 font-medium text-green-600">{inScopeCount}</span>
           </div>
         </div>
       </div>
 
-      <div className="flex gap-4 mb-6">
+      <div className="flex gap-4 mb-6 flex-wrap">
         <button
           onClick={handleAutoProcess}
-          disabled={step.status === 'in_progress' || strictRecords.length === 0}
-          className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+          disabled={step?.status === 'in_progress' || confirmedRecords.length === 0}
+          className="px-6 py-2 rounded-lg font-medium bg-green-500 hover:bg-green-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
         >
           デモ用仮判定
         </button>
         <button
-          onClick={() => {
-            const updates = strictRecords.map((r) => ({
-              id: r.id,
-              evidence_type_auto: undefined,
-              evidence_type_confidence: undefined,
-              evidence_type_final: undefined,
-            }));
-            bulkUpdateRecords(updates);
-            updateStepStatus(6, 'pending');
-            updateStepProgress(6, 0, strictRecords.length);
-          }}
+          onClick={handleClear}
           className="px-6 py-2 rounded-lg font-medium bg-gray-500 hover:bg-gray-600 text-white"
         >
           一括クリア
         </button>
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="text-sm text-gray-500">表示:</span>
+          <button
+            onClick={() => setViewMode('pending')}
+            className={`px-3 py-1 rounded text-sm ${
+              viewMode === 'pending' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700'
+            }`}
+          >
+            未完了のみ
+          </button>
+          <button
+            onClick={() => setViewMode('all')}
+            className={`px-3 py-1 rounded text-sm ${
+              viewMode === 'all' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700'
+            }`}
+          >
+            全件
+          </button>
+        </div>
       </div>
 
-      <div className="mb-6 p-4 bg-blue-50 rounded-lg">
-        <h3 className="font-medium mb-2">evidence_type 定義</h3>
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          {EVIDENCE_TYPES.map((type) => (
-            <div key={type.value} className="flex gap-2">
-              <span className="font-medium text-blue-600">{type.label}:</span>
-              <span className="text-gray-600">{type.description}</span>
-            </div>
-          ))}
+      {/* 定義パネル */}
+      <div className="mb-6 grid grid-cols-2 gap-4">
+        <div className="p-4 bg-blue-50 rounded-lg">
+          <h3 className="font-medium mb-2 text-blue-800">evidence_type 定義</h3>
+          <div className="space-y-1 text-sm">
+            {EVIDENCE_TYPES.map((type) => (
+              <div key={type.value} className="flex gap-2">
+                <span className="font-medium text-blue-600 whitespace-nowrap">{type.label}:</span>
+                <span className="text-gray-600">{type.description}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="p-4 bg-purple-50 rounded-lg">
+          <h3 className="font-medium mb-2 text-purple-800">scope 定義</h3>
+          <div className="space-y-1 text-sm">
+            {SCOPE_OPTIONS.map((opt) => (
+              <div key={opt.value} className="flex gap-2">
+                <span className="font-medium text-purple-600 whitespace-nowrap">{opt.label}:</span>
+                <span className="text-gray-600">{opt.description}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
       <div className="space-y-4">
-        {strictRecords.map((record) => {
+        {displayRecords.map((record) => {
           const isExpanded = expandedId === record.id;
           const context = isExpanded ? getContext(record.id) : null;
+          const isComplete = record.evidence_type_final && record.scope_final;
 
           return (
             <div
               key={record.id}
               className={`
                 border rounded-lg p-4
-                ${record.evidence_type_final ? 'border-green-300 bg-green-50' : 'border-gray-300 bg-white'}
+                ${isComplete ? 'border-green-300 bg-green-50' : 'border-gray-300 bg-white'}
               `}
             >
               <div className="flex justify-between items-start mb-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-gray-400">#{record.id}</span>
                   {record.evidence_type_confidence !== undefined && (
-                    <span className="text-xs bg-gray-200 px-2 py-0.5 rounded">
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      record.evidence_type_confidence < 0.4 ? 'bg-red-100 text-red-700' :
+                      record.evidence_type_confidence < 0.7 ? 'bg-amber-100 text-amber-700' :
+                      'bg-gray-200 text-gray-600'
+                    }`}>
                       確信度: {(record.evidence_type_confidence * 100).toFixed(0)}%
                     </span>
                   )}
                   {record.evidence_type_auto && (
                     <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                      推定: {record.evidence_type_auto}
+                      推定type: {record.evidence_type_auto}
+                    </span>
+                  )}
+                  {record.scope_auto && (
+                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                      推定scope: {record.scope_auto === 'in_scope' ? 'スコープ内' : 'スコープ外'}
                     </span>
                   )}
                 </div>
@@ -232,28 +309,60 @@ export default function Step6EvidenceType() {
                 </div>
               )}
 
-              <div className="flex items-center gap-4">
-                <label className="text-sm font-medium text-gray-600">タイプ:</label>
-                <select
-                  value={record.evidence_type_final || ''}
-                  onChange={(e) => handleTypeChange(record.id, e.target.value)}
-                  className="border rounded px-3 py-2 bg-white"
-                >
-                  <option value="">-- 選択してください --</option>
-                  {EVIDENCE_TYPES.map((type) => (
-                    <option key={type.value} value={type.value}>
-                      {type.label}
-                    </option>
-                  ))}
-                </select>
+              <div className="flex items-center gap-6 flex-wrap">
+                {/* Type選択 */}
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-600">タイプ:</label>
+                  <select
+                    value={record.evidence_type_final || ''}
+                    onChange={(e) => handleTypeChange(record.id, e.target.value)}
+                    className="border rounded px-3 py-2 bg-white text-sm"
+                  >
+                    <option value="">-- 選択 --</option>
+                    {EVIDENCE_TYPES.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Scope選択 */}
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-600">スコープ:</label>
+                  {SCOPE_OPTIONS.map((opt) => {
+                    const isSelected = record.scope_final === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() => handleScopeChange(record.id, opt.value)}
+                        className={`px-3 py-1 rounded text-sm ${
+                          isSelected
+                            ? opt.value === 'in_scope'
+                              ? 'bg-green-500 text-white'
+                              : 'bg-gray-500 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           );
         })}
       </div>
 
-      {strictRecords.length === 0 && (
-        <p className="text-gray-500">対象がありません。Step 5 を先に実行してください。</p>
+      {displayRecords.length === 0 && confirmedRecords.length > 0 && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <p className="text-green-700">全件分類完了です。</p>
+        </div>
+      )}
+
+      {confirmedRecords.length === 0 && (
+        <p className="text-gray-500">対象がありません。2B-2（Evidence確定）を先に実行してください。</p>
       )}
     </div>
   );
