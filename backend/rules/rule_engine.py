@@ -184,8 +184,36 @@ class RuleEngine:
             [(trigger_type, priority, confidence), ...]: マッチしたトリガーのリスト
         """
         matches = []
+        matched_types = set()
 
+        # 正規表現パターンでの補助マッチ（より緩い条件）
+        regex_patterns = {
+            "実行提案": [(r"(やってみ|試してみ|いかが|まず|具体的|提案|方法)", 0.7)],
+            "根拠提示": [(r"(という|データ|基準|研究|効果|理由|根拠)", 0.6)],
+            "リフレーミング": [(r"(捉え|見方|考え方|という意味|プラス)", 0.6)],
+            "行動継続後押し": [(r"(続け|継続|この調子|頑張|維持)", 0.7)],
+            "承認": [(r"(素晴らしい|すごい|ありがとう|良い|いいですね|さすが)", 0.7)],
+            "ラポール形成": [(r"(お体|体調|気をつけ|季節|お大事|ご自愛)", 0.6)],
+            "情報収集": [(r"(いかがでし|どうでし|どのくらい|どんな|教えて)", 0.7)],
+            "運用案内": [(r"(設定|不具合|エラー|操作|ログイン|対応)", 0.7)],
+        }
+
+        for trigger_type, patterns in regex_patterns.items():
+            for pattern, confidence in patterns:
+                if re.search(pattern, text):
+                    priority = next(
+                        (t.priority for t in self.trigger_defs if t.trigger_type == trigger_type),
+                        3
+                    )
+                    matches.append((trigger_type, priority, confidence))
+                    matched_types.add(trigger_type)
+                    break
+
+        # 既存のCSVパターンマッチも実行
         for trigger_def in self.trigger_defs:
+            if trigger_def.trigger_type in matched_types:
+                continue
+
             # マッチしたパターン数をカウント
             match_count = sum(1 for p in trigger_def.include_patterns if p in text)
 

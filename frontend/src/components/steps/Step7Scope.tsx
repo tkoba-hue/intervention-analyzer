@@ -106,13 +106,31 @@ export default function Step7Scope() {
         </div>
       </div>
 
-      <button
-        onClick={handleAutoProcess}
-        disabled={step.status === 'in_progress' || strictRecords.length === 0}
-        className="mb-6 px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
-      >
-        自動判定実行
-      </button>
+      <div className="flex gap-4 mb-6">
+        <button
+          onClick={handleAutoProcess}
+          disabled={step.status === 'in_progress' || strictRecords.length === 0}
+          className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
+        >
+          自動判定実行
+        </button>
+        <button
+          onClick={() => {
+            const updates = strictRecords.map((r) => ({
+              id: r.id,
+              scope_auto: undefined,
+              scope_override: undefined,
+              scope_final: undefined,
+            }));
+            bulkUpdateRecords(updates);
+            updateStepStatus(7, 'pending');
+            updateStepProgress(7, 0, strictRecords.length);
+          }}
+          className="px-6 py-2 rounded-lg font-medium bg-gray-500 hover:bg-gray-600 text-white"
+        >
+          一括クリア
+        </button>
+      </div>
 
       <div className="space-y-4">
         {strictRecords.map((record) => {

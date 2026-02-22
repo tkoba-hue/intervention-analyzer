@@ -4,7 +4,7 @@ import { useProjectStore } from '@/store/projectStore';
 import StepExplanation from '@/components/common/StepExplanation';
 
 export default function Step9ContextLink() {
-  const { steps, data, updateRecord, updateStepStatus, updateStepProgress } = useProjectStore();
+  const { steps, data, updateRecord, bulkUpdateRecords, updateStepStatus, updateStepProgress } = useProjectStore();
   const step = steps[9];
 
   const strictRecords = data.filter((r) => r.evidence_flag_strict);
@@ -46,7 +46,7 @@ export default function Step9ContextLink() {
       if (data[i].speaker === 'other' && !data[i].exclude_flag) {
         options.push({
           id: data[i].id,
-          text: data[i].text_raw.slice(0, 50) + (data[i].text_raw.length > 50 ? '...' : ''),
+          text: data[i].text_raw.slice(0, 100) + (data[i].text_raw.length > 100 ? '...' : ''),
           datetime: data[i].datetime,
         });
       }
@@ -98,12 +98,28 @@ export default function Step9ContextLink() {
         </div>
       </div>
 
-      <button
-        onClick={handleAutoLink}
-        className="mb-6 px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
-      >
-        自動リンク実行
-      </button>
+      <div className="flex gap-4 mb-6">
+        <button
+          onClick={handleAutoLink}
+          className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
+        >
+          自動リンク実行
+        </button>
+        <button
+          onClick={() => {
+            const updates = strictRecords.map((r) => ({
+              id: r.id,
+              linked_prev_id: undefined,
+            }));
+            bulkUpdateRecords(updates);
+            updateStepStatus(9, 'pending');
+            updateStepProgress(9, 0, strictRecords.length);
+          }}
+          className="px-6 py-2 rounded-lg font-medium bg-gray-500 hover:bg-gray-600 text-white"
+        >
+          一括クリア
+        </button>
+      </div>
 
       <div className="space-y-6">
         {strictRecords.map((record) => {

@@ -136,12 +136,31 @@ export default function Step8TriggerAssign() {
         </div>
       </div>
 
-      <button
-        onClick={handleAutoProcess}
-        className="mb-6 px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
-      >
-        自動判定実行
-      </button>
+      <div className="flex gap-4 mb-6">
+        <button
+          onClick={handleAutoProcess}
+          className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
+        >
+          自動判定実行
+        </button>
+        <button
+          onClick={() => {
+            const updates = otherRecords.map((r) => ({
+              id: r.id,
+              trigger_type_auto: [] as string[],
+              trigger_type_override: undefined,
+              trigger_type_final: [] as string[],
+              trigger_type_confidence: undefined,
+            }));
+            bulkUpdateRecords(updates);
+            updateStepStatus(8, 'pending');
+            updateStepProgress(8, 0, otherRecords.length);
+          }}
+          className="px-6 py-2 rounded-lg font-medium bg-gray-500 hover:bg-gray-600 text-white"
+        >
+          一括クリア
+        </button>
+      </div>
 
       <div className="space-y-4">
         {sortedRecords.slice(0, 50).map((record) => {

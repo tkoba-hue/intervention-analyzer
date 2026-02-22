@@ -154,19 +154,36 @@ export default function Step4EvidenceConfirm() {
         </div>
       </div>
 
-      {pendingCount > 0 && (
-        <div className="mb-6 flex items-center gap-4">
-          <button
-            onClick={handleBulkApprove}
-            className="px-6 py-2 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600"
-          >
-            全て Yes にする ({pendingCount}件)
-          </button>
-          <span className="text-sm text-gray-500">
-            ※ 確信度の高い候補から仮承認し、違うものだけNoに変更してください
-          </span>
-        </div>
-      )}
+      <div className="mb-6 flex items-center gap-4">
+        {pendingCount > 0 && (
+          <>
+            <button
+              onClick={handleBulkApprove}
+              className="px-6 py-2 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600"
+            >
+              全て Yes にする ({pendingCount}件)
+            </button>
+            <span className="text-sm text-gray-500">
+              ※ 確信度の高い候補から仮承認し、違うものだけNoに変更してください
+            </span>
+          </>
+        )}
+        <button
+          onClick={() => {
+            const updates = candidates.map((r) => ({
+              id: r.id,
+              evidence_confirm: undefined,
+              evidence_reason_if0: undefined,
+            }));
+            bulkUpdateRecords(updates);
+            updateStepStatus(4, 'pending');
+            updateStepProgress(4, 0, candidates.length);
+          }}
+          className="px-6 py-2 bg-gray-500 text-white rounded-lg font-medium hover:bg-gray-600"
+        >
+          一括クリア
+        </button>
+      </div>
 
       <div className="space-y-4">
         {candidates.map((record) => {

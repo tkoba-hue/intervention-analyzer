@@ -131,13 +131,31 @@ export default function Step6EvidenceType() {
         </div>
       </div>
 
-      <button
-        onClick={handleAutoProcess}
-        disabled={step.status === 'in_progress' || strictRecords.length === 0}
-        className="mb-6 px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
-      >
-        自動判定実行
-      </button>
+      <div className="flex gap-4 mb-6">
+        <button
+          onClick={handleAutoProcess}
+          disabled={step.status === 'in_progress' || strictRecords.length === 0}
+          className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+        >
+          デモ用仮判定
+        </button>
+        <button
+          onClick={() => {
+            const updates = strictRecords.map((r) => ({
+              id: r.id,
+              evidence_type_auto: undefined,
+              evidence_type_confidence: undefined,
+              evidence_type_final: undefined,
+            }));
+            bulkUpdateRecords(updates);
+            updateStepStatus(6, 'pending');
+            updateStepProgress(6, 0, strictRecords.length);
+          }}
+          className="px-6 py-2 rounded-lg font-medium bg-gray-500 hover:bg-gray-600 text-white"
+        >
+          一括クリア
+        </button>
+      </div>
 
       <div className="mb-6 p-4 bg-blue-50 rounded-lg">
         <h3 className="font-medium mb-2">evidence_type 定義</h3>

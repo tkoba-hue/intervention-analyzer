@@ -104,12 +104,29 @@ export default function Step10GoalDomain() {
         </div>
       </div>
 
-      <button
-        onClick={handleAutoProcess}
-        className="mb-6 px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
-      >
-        自動判定実行
-      </button>
+      <div className="flex gap-4 mb-6">
+        <button
+          onClick={handleAutoProcess}
+          className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
+        >
+          自動判定実行
+        </button>
+        <button
+          onClick={() => {
+            const updates = targetRecords.map((r) => ({
+              id: r.id,
+              goal_domain_auto: undefined,
+              goal_domain_final: undefined,
+            }));
+            bulkUpdateRecords(updates);
+            updateStepStatus(10, 'pending');
+            updateStepProgress(10, 0, targetRecords.length);
+          }}
+          className="px-6 py-2 rounded-lg font-medium bg-gray-500 hover:bg-gray-600 text-white"
+        >
+          一括クリア
+        </button>
+      </div>
 
       <div className="space-y-4">
         {targetRecords.map((record) => (
