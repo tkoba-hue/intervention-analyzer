@@ -6,6 +6,12 @@ import { api } from '@/lib/api';
 import { useParams } from 'next/navigation';
 import StepExplanation from '@/components/common/StepExplanation';
 
+type ProcessingState = 'idle' | 'loading' | 'success' | 'error';
+interface ProcessingStatus {
+  state: ProcessingState;
+  message?: string;
+}
+
 const TRIGGER_TYPES = [
   { value: '実行提案', priority: 1, description: '具体策を提案する' },
   { value: '根拠提示', priority: 1, description: 'データや基準を提示' },
@@ -41,9 +47,11 @@ export default function Step8TriggerAssign() {
   };
 
   const [phase, setPhase] = useState<Phase>(getPhaseFromStepId(currentStepId));
+  const [processing, setProcessing] = useState<ProcessingStatus>({ state: 'idle' });
 
   useEffect(() => {
     setPhase(getPhaseFromStepId(currentStepId));
+    setProcessing({ state: 'idle' });
   }, [currentStepId]);
 
   const currentPhaseStepId = PHASE_TO_STEP[phase];
@@ -74,32 +82,55 @@ export default function Step8TriggerAssign() {
 
   // 2A-1: 候補抽出（除外判定）
   const handleExclude = async () => {
+    setProcessing({ state: 'loading', message: '候補抽出中...' });
     updateStepStatus('2A-1', 'in_progress');
 
-    const updates = otherRecords.map((r) => {
-      const text = r.text_raw;
-      const isExcluded =
-        text.length < 5 ||
-        /^[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\s]+$/u.test(text);
+    try {
+      const updates = otherRecords.map((r) => {
+        const text = r.text_raw;
+        const isExcluded =
+          text.length < 5 ||
+          /^[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\s]+$/u.test(text);
 
-      return {
-        id: r.id,
-        trigger_excluded: isExcluded,
-      };
-    });
+        return {
+          id: r.id,
+          trigger_excluded: isExcluded,
+        };
+      });
 
-    bulkUpdateRecords(updates);
-    updateStepProgress('2A-1', otherRecords.length, otherRecords.length);
-    updateStepStatus('2A-1', 'completed');
-    setPhase('auto');
+      const excludedCount = updates.filter(u => u.trigger_excluded).length;
+      bulkUpdateRecords(updates);
+      updateStepProgress('2A-1', otherRecords.length, otherRecords.length);
+      updateStepStatus('2A-1', 'completed');
+      setProcessing({
+        state: 'success',
+        message: `完了: ${otherRecords.length}件中 ${excludedCount}件を除外`
+      });
+
+      // 少し待ってから次のフェーズへ
+      setTimeout(() => {
+        setPhase('auto');
+        setProcessing({ state: 'idle' });
+      }, 1000);
+    } catch (error) {
+      console.error('Exclude error:', error);
+      setProcessing({ state: 'error', message: `エラー: ${error}` });
+      updateStepStatus('2A-1', 'pending');
+    }
   };
 
   // 2A-2: 自動付与
   const handleAutoAssign = async () => {
+    setProcessing({ state: 'loading', message: 'トリガー分類中... (APIに接続中)' });
     updateStepStatus('2A-2', 'in_progress');
 
     try {
-      const response = await api.classifyTriggers(data);
+      // other発話のみをAPIに送信
+      const otherData = data.filter(r => r.speaker === 'other' && !r.exclude_flag && !r.trigger_excluded);
+      console.log('Sending to API:', otherData.length, 'records');
+
+      const response = await api.classifyTriggers(otherData);
+      console.log('API response:', response);
 
       const updates = response.records.map((r) => ({
         id: r.id as string,
@@ -108,12 +139,23 @@ export default function Step8TriggerAssign() {
         trigger_type_confidence: r.trigger_type_confidence as number | undefined,
       }));
 
+      const assignedCount = updates.filter(u => u.trigger_type_final.length > 0).length;
       bulkUpdateRecords(updates);
       updateStepProgress('2A-2', otherRecords.length - excludedRecords.length, otherRecords.length - excludedRecords.length);
       updateStepStatus('2A-2', 'completed');
-      setPhase('review');
+      setProcessing({
+        state: 'success',
+        message: `完了: ${updates.length}件中 ${assignedCount}件にトリガーを付与`
+      });
+
+      setTimeout(() => {
+        setPhase('review');
+        setProcessing({ state: 'idle' });
+      }, 1000);
     } catch (error) {
       console.error('Classify triggers error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setProcessing({ state: 'error', message: `APIエラー: ${errorMessage}` });
       updateStepStatus('2A-2', 'pending');
     }
   };
@@ -227,18 +269,51 @@ export default function Step8TriggerAssign() {
         )}
       </div>
 
+      {/* 処理ステータス表示 */}
+      {processing.state !== 'idle' && (
+        <div className={`mb-4 p-4 rounded-lg ${
+          processing.state === 'loading' ? 'bg-blue-50 text-blue-700' :
+          processing.state === 'success' ? 'bg-green-50 text-green-700' :
+          'bg-red-50 text-red-700'
+        }`}>
+          {processing.state === 'loading' && (
+            <span className="inline-block mr-2 animate-spin">⏳</span>
+          )}
+          {processing.state === 'success' && (
+            <span className="inline-block mr-2">✅</span>
+          )}
+          {processing.state === 'error' && (
+            <span className="inline-block mr-2">❌</span>
+          )}
+          {processing.message}
+        </div>
+      )}
+
       {/* 2A-1: 候補抽出 */}
       {phase === 'exclude' && (
         <div>
           <p className="text-gray-600 mb-4">
             スタンプのみ、短文など明らかにトリガーでないものを除外します。
+            <span className="block mt-1 text-sm text-gray-500">
+              対象: other発話 {otherRecords.length}件
+            </span>
           </p>
           <button
             onClick={handleExclude}
-            className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
+            disabled={processing.state === 'loading' || otherRecords.length === 0}
+            className={`px-6 py-2 rounded-lg font-medium ${
+              processing.state === 'loading' || otherRecords.length === 0
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-blue-500 hover:bg-blue-600 text-white'
+            }`}
           >
-            候補抽出を実行
+            {processing.state === 'loading' ? '処理中...' : '候補抽出を実行'}
           </button>
+          {otherRecords.length === 0 && (
+            <p className="mt-2 text-amber-600 text-sm">
+              ⚠️ other発話がありません。P1で正規化・除外マークを完了してください。
+            </p>
+          )}
         </div>
       )}
 
@@ -247,18 +322,27 @@ export default function Step8TriggerAssign() {
         <div>
           <p className="text-gray-600 mb-4">
             ルールベースでトリガーを自動付与します。
-            {excludedRecords.length > 0 && (
-              <span className="block mt-1 text-gray-500">
-                ※ {excludedRecords.length}件は除外済み
-              </span>
-            )}
+            <span className="block mt-1 text-sm text-gray-500">
+              対象: {otherRecords.length - excludedRecords.length}件
+              {excludedRecords.length > 0 && ` (${excludedRecords.length}件は除外済み)`}
+            </span>
           </p>
           <button
             onClick={handleAutoAssign}
-            className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
+            disabled={processing.state === 'loading' || otherRecords.length - excludedRecords.length === 0}
+            className={`px-6 py-2 rounded-lg font-medium ${
+              processing.state === 'loading'
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-blue-500 hover:bg-blue-600 text-white'
+            }`}
           >
-            自動付与を実行
+            {processing.state === 'loading' ? '処理中...' : '自動付与を実行'}
           </button>
+          {otherRecords.length - excludedRecords.length === 0 && (
+            <p className="mt-2 text-amber-600 text-sm">
+              ⚠️ 対象レコードがありません。2A-1を先に完了してください。
+            </p>
+          )}
         </div>
       )}
 
