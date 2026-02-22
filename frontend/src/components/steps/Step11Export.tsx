@@ -58,7 +58,7 @@ export default function Step11Export() {
   // スコープ内のエビデンス
   const inScopeRecords = data.filter((r) => r.evidence_confirm === 1 && r.scope_final === 'in_scope');
 
-  // トリガー→エビデンスのペア
+  // トリガー->エビデンスのペア
   const linkedPairs = useMemo(() => {
     return inScopeRecords
       .filter((r) => r.linked_prev_id)
@@ -403,12 +403,12 @@ export default function Step11Export() {
             {Object.entries(domainPhases).map(([domain, phases]) => (
               <div key={domain} className="mb-4 last:mb-0">
                 <h4 className="text-sm font-medium text-blue-800 mb-2">
-                  ■ {domain} ({phases.length}件)
+                  - {domain} ({phases.length}件)
                 </h4>
                 <div className="text-sm text-gray-700 pl-4">
                   {phases.map((phase, idx) => (
                     <span key={phase.id}>
-                      {idx > 0 && <span className="text-gray-400"> → </span>}
+                      {idx > 0 && <span className="text-gray-400"> -&gt; </span>}
                       <span className="text-blue-600">{phase.type}</span>
                       <span className="text-gray-500">（「{phase.text}」#{phase.id}）</span>
                     </span>
@@ -438,7 +438,7 @@ export default function Step11Export() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-green-800">{type}</span>
                         <span className="text-xs text-gray-400">(P{priority})</span>
-                        <span>: {stats.total}回使用 → {stats.success}回成功</span>
+                        <span>: {stats.total}回使用 -&gt; {stats.success}回成功</span>
                         <span className="text-green-600 font-medium">({rate}%)</span>
                       </div>
                       {Object.keys(stats.evidenceTypes).length > 0 && (
@@ -465,7 +465,7 @@ export default function Step11Export() {
               <div className="space-y-4">
                 {Object.entries(triggerStats.byDomain).map(([domain, triggers]) => (
                   <div key={domain}>
-                    <h4 className="text-sm font-medium text-yellow-800 mb-2">■ {domain}</h4>
+                    <h4 className="text-sm font-medium text-yellow-800 mb-2">- {domain}</h4>
                     <div className="pl-4 space-y-1">
                       {Object.entries(triggers)
                         .sort((a, b) => b[1].success - a[1].success)
@@ -534,7 +534,7 @@ export default function Step11Export() {
                   )}
                   {evidence.evidence_type_final && (
                     <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
-                      → {evidence.evidence_type_final}
+                      -&gt; {evidence.evidence_type_final}
                     </span>
                   )}
                 </div>
@@ -561,7 +561,7 @@ export default function Step11Export() {
 
                   {/* 矢印 */}
                   <div className="flex justify-center">
-                    <span className="text-gray-400 text-lg">↓</span>
+                    <span className="text-gray-400 text-lg">down</span>
                   </div>
 
                   {/* 参加者側 */}
@@ -755,7 +755,7 @@ export default function Step11Export() {
                             </span>
                             {topTrigger && (
                               <span className="text-xs text-gray-400 ml-1">
-                                ← {topTrigger}
+                                &lt;- {topTrigger}
                               </span>
                             )}
                           </div>
@@ -813,7 +813,7 @@ export default function Step11Export() {
                   {log.step}
                 </span>
                 <span className="text-gray-500 w-32">{log.name}</span>
-                <span className="text-gray-400 mx-2">→</span>
+                <span className="text-gray-400 mx-2">-&gt;</span>
                 <span className="text-gray-800">{log.result}</span>
               </div>
             ))}

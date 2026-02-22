@@ -130,8 +130,8 @@ export default function Step4EvidenceConfirm() {
           <h4 className="font-medium text-gray-800 mb-2">Noにする場合</h4>
           <ul className="list-disc list-inside space-y-1">
             <li>雑談・情報共有のみ（天気の話、ニュースの話）</li>
-            <li>引用伝聞（「〇〇らしい」「テレビで見た」）</li>
-            <li>反語否定（「そんなことできない」→実際はしない意図）</li>
+            <li>引用伝聞（「XXらしい」「テレビで見た」）</li>
+            <li>反語否定（「そんなことできない」-&gt;実際はしない意図）</li>
             <li>意味違い（「歩きました」が物理的移動のみ）</li>
           </ul>
         </div>

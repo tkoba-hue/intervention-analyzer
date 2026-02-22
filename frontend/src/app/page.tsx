@@ -220,6 +220,7 @@ export default function Home() {
         <h1 className="text-3xl font-bold mb-8 text-center">
           テキストチャット介入分析ツール
         </h1>
+        {/* v3.1 - 2026-02-23 */}
 
         {step === 'upload' && (
           <div className="bg-white rounded-lg shadow p-8">
