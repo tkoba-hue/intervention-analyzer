@@ -87,25 +87,25 @@ export default function StepIndicator({ currentStep: propCurrentStep }: StepIndi
   return (
     <div className="flex items-center gap-1 flex-wrap text-xs">
       {/* P1 */}
-      <span className="text-gray-400 mr-1">P1:</span>
+      <span className="text-gray-500 font-medium mr-1">P1</span>
       {P1_STEPS.map(renderStep)}
 
       <span className="text-gray-300 mx-1">→</span>
 
-      {/* P2A */}
-      <span className="text-blue-400 mr-1">🔵</span>
+      {/* P2 Trigger */}
+      <span className="text-blue-500 font-medium mr-1">P2 Trigger</span>
       {P2A_STEPS.map(renderStep)}
 
       <span className="text-gray-300 mx-1">/</span>
 
-      {/* P2B */}
-      <span className="text-green-400 mr-1">🟢</span>
+      {/* P2 Evidence */}
+      <span className="text-green-500 font-medium mr-1">P2 Evidence</span>
       {P2B_STEPS.map(renderStep)}
 
       <span className="text-gray-300 mx-1">→</span>
 
       {/* P3 */}
-      <span className="text-gray-400 mr-1">P3:</span>
+      <span className="text-gray-500 font-medium mr-1">P3</span>
       {P3_STEPS.map(renderStep)}
     </div>
   );
