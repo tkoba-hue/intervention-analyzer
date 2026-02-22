@@ -1,6 +1,6 @@
 'use client';
 
-import { useProjectStore, PhaseStepId, STEP_INFO, ALL_STEP_IDS, STEP_DEPENDENCIES } from '@/store/projectStore';
+import { useProjectStore, PhaseStepId, STEP_INFO, STEP_DEPENDENCIES } from '@/store/projectStore';
 import { useRouter, useParams } from 'next/navigation';
 
 interface StepIndicatorProps {
@@ -27,54 +27,33 @@ export default function StepIndicator({ currentStep: propCurrentStep }: StepIndi
     const info = STEP_INFO[stepId];
     const canProceed = canProceedToStep(stepId);
 
-    // ベース色
     let bgColor = 'bg-gray-200';
     let textColor = 'text-gray-500';
-    let borderColor = 'border-gray-300';
 
     if (status === 'completed') {
       if (info.track === 'trigger') {
         bgColor = 'bg-blue-500';
-        borderColor = 'border-blue-500';
       } else if (info.track === 'evidence') {
         bgColor = 'bg-green-500';
-        borderColor = 'border-green-500';
       } else {
-        bgColor = 'bg-gray-600';
-        borderColor = 'border-gray-600';
+        bgColor = 'bg-gray-500';
       }
       textColor = 'text-white';
     } else if (status === 'in_progress' || isActive) {
       if (info.track === 'trigger') {
-        bgColor = 'bg-blue-400';
-        borderColor = 'border-blue-400';
+        bgColor = 'bg-blue-300';
       } else if (info.track === 'evidence') {
-        bgColor = 'bg-green-400';
-        borderColor = 'border-green-400';
+        bgColor = 'bg-green-300';
       } else {
-        bgColor = 'bg-gray-500';
-        borderColor = 'border-gray-500';
+        bgColor = 'bg-gray-400';
       }
       textColor = 'text-white';
     } else if (!canProceed) {
       bgColor = 'bg-gray-100';
       textColor = 'text-gray-300';
-      borderColor = 'border-gray-200 border-dashed';
     }
 
-    return `${bgColor} ${textColor} ${borderColor}`;
-  };
-
-  const getConnectorStyle = (stepId: PhaseStepId) => {
-    const status = steps[stepId]?.status;
-    const info = STEP_INFO[stepId];
-
-    if (status === 'completed') {
-      if (info.track === 'trigger') return 'bg-blue-500';
-      if (info.track === 'evidence') return 'bg-green-500';
-      return 'bg-gray-500';
-    }
-    return 'bg-gray-200';
+    return `${bgColor} ${textColor}`;
   };
 
   const handleStepClick = (stepId: PhaseStepId) => {
@@ -83,95 +62,51 @@ export default function StepIndicator({ currentStep: propCurrentStep }: StepIndi
     }
   };
 
-  const renderStepNode = (stepId: PhaseStepId, showConnector: boolean = true, isLast: boolean = false) => {
+  const renderStep = (stepId: PhaseStepId) => {
     const info = STEP_INFO[stepId];
     const canProceed = canProceedToStep(stepId);
+    const status = steps[stepId]?.status;
 
     return (
-      <div key={stepId} className="flex items-center">
-        <button
-          onClick={() => handleStepClick(stepId)}
-          disabled={!canProceed}
-          className={`
-            flex flex-col items-center justify-center
-            w-10 h-10 rounded-full border-2
-            text-xs font-medium
-            transition-all duration-200
-            ${canProceed ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'}
-            ${getStepStyle(stepId)}
-          `}
-          title={`${stepId}: ${info.label}`}
-        >
-          <span className="text-[10px] leading-none">{info.shortLabel}</span>
-        </button>
-        {showConnector && !isLast && (
-          <div className={`w-6 h-1 ${getConnectorStyle(stepId)}`} />
-        )}
-      </div>
+      <button
+        key={stepId}
+        onClick={() => handleStepClick(stepId)}
+        disabled={!canProceed}
+        className={`
+          px-2 py-1 rounded text-xs font-medium
+          ${canProceed ? 'hover:opacity-80 cursor-pointer' : 'cursor-not-allowed opacity-60'}
+          ${getStepStyle(stepId)}
+        `}
+        title={`${stepId}: ${info.label}`}
+      >
+        {status === 'completed' ? '✓' : ''}{info.shortLabel}
+      </button>
     );
   };
-
-  const renderTrack = (stepIds: PhaseStepId[], label: string, color: string) => {
-    return (
-      <div className="flex items-center">
-        <span className={`text-xs font-medium w-16 ${color}`}>{label}</span>
-        <div className="flex items-center">
-          {stepIds.map((stepId, idx) => renderStepNode(stepId, true, idx === stepIds.length - 1))}
-        </div>
-      </div>
-    );
-  };
-
-  // P2AとP2Bの両方が完了しているかチェック
-  const p2aCompleted = P2A_STEPS.every((s) => steps[s]?.status === 'completed');
-  const p2bCompleted = P2B_STEPS.every((s) => steps[s]?.status === 'completed');
-  const branchMergeConnectorStyle = p2aCompleted && p2bCompleted ? 'bg-gray-500' : 'bg-gray-200';
 
   return (
-    <div className="w-full py-4 px-2 bg-gray-50 rounded-lg">
-      {/* P1 共通 */}
-      <div className="flex items-center mb-4">
-        <span className="text-xs font-medium w-16 text-gray-600">P1 共通</span>
-        <div className="flex items-center">
-          {P1_STEPS.map((stepId, idx) => renderStepNode(stepId, true, idx === P1_STEPS.length - 1))}
-        </div>
-        {/* 分岐ポイント */}
-        <div className="flex flex-col items-center mx-2">
-          <div className={`w-1 h-4 ${steps['1-2']?.status === 'completed' ? 'bg-gray-500' : 'bg-gray-200'}`} />
-          <div className={`w-1 h-4 ${steps['1-2']?.status === 'completed' ? 'bg-gray-500' : 'bg-gray-200'}`} />
-        </div>
-      </div>
+    <div className="flex items-center gap-1 flex-wrap text-xs">
+      {/* P1 */}
+      <span className="text-gray-400 mr-1">P1:</span>
+      {P1_STEPS.map(renderStep)}
 
-      {/* P2A Trigger */}
-      <div className="ml-4 mb-2 pl-12 border-l-2 border-gray-300">
-        {renderTrack(P2A_STEPS, '🔵 Trigger', 'text-blue-600')}
-      </div>
+      <span className="text-gray-300 mx-1">→</span>
 
-      {/* P2B Evidence */}
-      <div className="ml-4 mb-4 pl-12 border-l-2 border-gray-300">
-        {renderTrack(P2B_STEPS, '🟢 Evidence', 'text-green-600')}
-      </div>
+      {/* P2A */}
+      <span className="text-blue-400 mr-1">🔵</span>
+      {P2A_STEPS.map(renderStep)}
 
-      {/* 合流ポイント */}
-      <div className="flex items-center ml-4 pl-12 mb-2">
-        <div className="flex flex-col items-center mr-2">
-          <div className={`w-1 h-2 ${branchMergeConnectorStyle}`} />
-        </div>
-      </div>
+      <span className="text-gray-300 mx-1">/</span>
 
-      {/* P3 統合 */}
-      <div className="flex items-center">
-        <span className="text-xs font-medium w-16 text-gray-600">P3 統合</span>
-        <div className="flex items-center ml-12">
-          {P3_STEPS.map((stepId, idx) => renderStepNode(stepId, true, idx === P3_STEPS.length - 1))}
-        </div>
-      </div>
+      {/* P2B */}
+      <span className="text-green-400 mr-1">🟢</span>
+      {P2B_STEPS.map(renderStep)}
 
-      {/* 凡例 */}
-      <div className="mt-4 pt-3 border-t border-gray-200 flex gap-4 text-xs text-gray-500">
-        <span>🔵 Trigger = 介入発話</span>
-        <span>🟢 Evidence = 参加者の反応</span>
-      </div>
+      <span className="text-gray-300 mx-1">→</span>
+
+      {/* P3 */}
+      <span className="text-gray-400 mr-1">P3:</span>
+      {P3_STEPS.map(renderStep)}
     </div>
   );
 }

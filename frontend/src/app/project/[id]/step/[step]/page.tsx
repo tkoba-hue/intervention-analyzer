@@ -73,13 +73,42 @@ const getPrevStep = (current: PhaseStepId): PhaseStepId | null => {
   return stepOrder[current];
 };
 
+// 旧ステップID → 新フェーズ式IDのマッピング
+const OLD_TO_NEW_STEP: Record<string, PhaseStepId> = {
+  '1': '1-1',
+  '2': '1-2',
+  '3': '2B-1',
+  '4': '2B-2',
+  '5': '2B-2', // strict判定は削除、確定に統合
+  '6': '2B-3',
+  '7': '2B-3', // scope統合
+  '8': '2A-1',
+  '9': '3-1',
+  '10': '3-2',
+  '11': '3-3',
+};
+
 export default function StepPage() {
   const params = useParams();
   const router = useRouter();
   const { projectId, projectName, setCurrentStep, steps, canProceedToStep } = useProjectStore();
 
-  const stepId = params.step as PhaseStepId;
+  const rawStepId = params.step as string;
   const currentProjectId = params.id as string;
+
+  // 旧IDの場合はリダイレクト
+  useEffect(() => {
+    if (OLD_TO_NEW_STEP[rawStepId]) {
+      router.replace(`/project/${currentProjectId}/step/${OLD_TO_NEW_STEP[rawStepId]}`);
+    }
+  }, [rawStepId, currentProjectId, router]);
+
+  // 旧IDの場合はリダイレクト中
+  if (OLD_TO_NEW_STEP[rawStepId]) {
+    return null;
+  }
+
+  const stepId = rawStepId as PhaseStepId;
 
   // 有効なステップIDかチェック
   const isValidStepId = ALL_STEP_IDS.includes(stepId);
