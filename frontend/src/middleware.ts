@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function middleware(request: NextRequest) {
-  // 開発環境はスキップ
-  if (process.env.NODE_ENV === 'development') {
+  // 開発環境またはlocalhostはスキップ
+  const host = request.headers.get('host') || '';
+  if (process.env.NODE_ENV === 'development' || host.includes('localhost') || host.includes('127.0.0.1')) {
     return NextResponse.next();
   }
 
