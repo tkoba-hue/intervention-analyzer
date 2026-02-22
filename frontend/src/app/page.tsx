@@ -217,10 +217,10 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8 text-center">
+        <h1 className="text-3xl font-bold mb-2 text-center">
           テキストチャット介入分析ツール
         </h1>
-        {/* v3.1 - 2026-02-23 */}
+        <p className="text-xs text-gray-400 text-center mb-6">v3.2</p>
 
         {step === 'upload' && (
           <div className="bg-white rounded-lg shadow p-8">
