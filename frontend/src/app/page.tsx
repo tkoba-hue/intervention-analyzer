@@ -4,6 +4,71 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useProjectStore, ChatRecord } from '@/store/projectStore';
 
+type MappingType = {
+  id: string;
+  datetime: string;
+  speaker: string;
+  text: string;
+  speakerParticipantValue: string;
+  speakerOtherValue: string;
+  userId: string;
+};
+
+// カラム名パターンによる自動検出
+function autoDetectMapping(headers: string[], rawData: string[][]): Partial<MappingType> {
+  const result: Partial<MappingType> = {};
+
+  // カラム名マッチパターン
+  const patterns: Record<keyof Pick<MappingType, 'id' | 'datetime' | 'speaker' | 'text' | 'userId'>, RegExp> = {
+    id: /^(id|番号|no|index|コメントid|発話id)$/i,
+    datetime: /^(datetime|date|time|日時|timestamp|送信日時|created_at)$/i,
+    speaker: /^(speaker|発話者|話者|role|送信者|from|from_type)$/i,
+    text: /^(text|テキスト|本文|発話|message|内容|メッセージ|body|content)$/i,
+    userId: /^(user_id|userid|ユーザー|ユーザーid|participant_id|participant)$/i,
+  };
+
+  // ヘッダー名でマッチ
+  for (const header of headers) {
+    const trimmed = header.trim();
+    for (const [field, pattern] of Object.entries(patterns)) {
+      if (pattern.test(trimmed) && !result[field as keyof typeof patterns]) {
+        result[field as keyof typeof patterns] = header;
+        break;
+      }
+    }
+  }
+
+  // speaker列が見つかった場合、値を推定
+  if (result.speaker && rawData.length > 0) {
+    const speakerIdx = headers.indexOf(result.speaker);
+    if (speakerIdx >= 0) {
+      const uniqueValues = [...new Set(rawData.map((r) => r[speakerIdx]).filter(Boolean))];
+
+      // 2種類以下なら推定を試みる
+      if (uniqueValues.length <= 3) {
+        const participantPattern = /^(participant|参加者|ユーザー|user|client|patient)$/i;
+        const otherPattern = /^(other|介入者|相手|coach|admin|counselor|operator|staff)$/i;
+
+        for (const val of uniqueValues) {
+          if (participantPattern.test(val)) {
+            result.speakerParticipantValue = val;
+          } else if (otherPattern.test(val)) {
+            result.speakerOtherValue = val;
+          }
+        }
+
+        // パターンに一致しなかった場合、最初の2値を割り当て
+        if (!result.speakerParticipantValue && !result.speakerOtherValue && uniqueValues.length === 2) {
+          result.speakerParticipantValue = uniqueValues[0];
+          result.speakerOtherValue = uniqueValues[1];
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
 export default function Home() {
   const router = useRouter();
   const { setProject, setData, setColumnMapping, reset } = useProjectStore();
@@ -11,7 +76,7 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [rawData, setRawData] = useState<string[][]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
-  const [mapping, setMapping] = useState({
+  const [mapping, setMapping] = useState<MappingType>({
     id: '',
     datetime: '',
     speaker: '',
@@ -21,6 +86,7 @@ export default function Home() {
     userId: '',
   });
   const [step, setStep] = useState<'upload' | 'mapping' | 'preview'>('upload');
+  const [autoDetected, setAutoDetected] = useState<string[]>([]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -55,11 +121,44 @@ export default function Home() {
       if (rows.length > 0) {
         setHeaders(rows[0]);
         setRawData(rows.slice(1));
-        setStep('mapping');
+        // 画面遷移はしない（ファイル名表示のみ）
       }
     };
     reader.readAsText(selectedFile, 'UTF-8');
   }, []);
+
+  // 「次へ」ボタン：自動検出 + マッピング画面に遷移
+  const handleProceedToMapping = useCallback(() => {
+    if (headers.length === 0 || rawData.length === 0) return;
+
+    // カラムマッピング自動検出
+    const detected = autoDetectMapping(headers, rawData);
+    const detectedFields: string[] = [];
+
+    // 検出結果をマッピングに反映
+    const newMapping: MappingType = {
+      id: detected.id || '',
+      datetime: detected.datetime || '',
+      speaker: detected.speaker || '',
+      text: detected.text || '',
+      speakerParticipantValue: detected.speakerParticipantValue || '参加者',
+      speakerOtherValue: detected.speakerOtherValue || 'other',
+      userId: detected.userId || '',
+    };
+
+    // 検出できたフィールドを記録
+    if (detected.id) detectedFields.push('コメントID');
+    if (detected.datetime) detectedFields.push('日時');
+    if (detected.speaker) detectedFields.push('話者');
+    if (detected.text) detectedFields.push('テキスト');
+    if (detected.userId) detectedFields.push('ユーザーID');
+    if (detected.speakerParticipantValue) detectedFields.push('参加者値');
+    if (detected.speakerOtherValue) detectedFields.push('介入者値');
+
+    setMapping(newMapping);
+    setAutoDetected(detectedFields);
+    setStep('mapping');
+  }, [headers, rawData]);
 
   const handleMappingChange = (field: keyof typeof mapping, value: string) => {
     setMapping((prev) => ({ ...prev, [field]: value }));
@@ -129,24 +228,59 @@ export default function Home() {
               CSV または Excel ファイルをアップロードしてください。
             </p>
 
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-              <input
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                onChange={handleFileChange}
-                className="hidden"
-                id="file-upload"
-              />
-              <label
-                htmlFor="file-upload"
-                className="cursor-pointer text-blue-500 hover:text-blue-600"
-              >
-                ファイルを選択
-              </label>
-              <p className="text-gray-400 mt-2">
-                または、ここにドラッグ＆ドロップ
-              </p>
-            </div>
+            {!file ? (
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  id="file-upload"
+                />
+                <label
+                  htmlFor="file-upload"
+                  className="cursor-pointer text-blue-500 hover:text-blue-600"
+                >
+                  ファイルを選択
+                </label>
+                <p className="text-gray-400 mt-2">
+                  または、ここにドラッグ＆ドロップ
+                </p>
+              </div>
+            ) : (
+              <div className="border-2 border-green-300 bg-green-50 rounded-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-sm text-gray-500">選択済み</p>
+                    <p className="text-lg font-medium text-gray-800">{file.name}</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {rawData.length} 件のデータ / {headers.length} カラム
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-4">
+                  <label
+                    htmlFor="file-upload-change"
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded cursor-pointer hover:bg-gray-300"
+                  >
+                    別のファイルを選択
+                  </label>
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    onChange={handleFileChange}
+                    className="hidden"
+                    id="file-upload-change"
+                  />
+                  <button
+                    onClick={handleProceedToMapping}
+                    className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  >
+                    次へ
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -156,6 +290,17 @@ export default function Home() {
             <p className="text-gray-600 mb-6">
               各フィールドに対応するカラムを選択してください。
             </p>
+
+            {autoDetected.length > 0 && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+                <p className="text-green-800 text-sm">
+                  自動検出: {autoDetected.join(', ')}
+                </p>
+                <p className="text-green-600 text-xs mt-1">
+                  検出結果を初期値として設定しました。必要に応じて修正してください。
+                </p>
+              </div>
+            )}
 
             <div className="space-y-4">
               <div>
