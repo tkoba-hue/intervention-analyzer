@@ -2,7 +2,7 @@
  * Backend API client
  */
 
-const API_BASE = '/api';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://intervention-analyzer-production.up.railway.app/api';
 
 export interface TextRecord {
   id: string;
