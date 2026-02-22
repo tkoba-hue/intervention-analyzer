@@ -1,6 +1,7 @@
 """
 テキストチャット介入分析ツール - バックエンドAPI
 """
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,9 +12,19 @@ app = FastAPI(
 )
 
 # CORS設定
+origins = [
+    "http://localhost:3000",
+]
+
+# 本番URL追加（環境変数から）
+frontend_url = os.getenv("FRONTEND_URL")
+if frontend_url:
+    origins.append(frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
