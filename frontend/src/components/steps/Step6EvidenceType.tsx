@@ -17,7 +17,11 @@ const EVIDENCE_TYPES = [
   { value: 'self_efficacy', label: '自己効力感 (self_efficacy)', description: 'できそう、自信等' },
   { value: 'situation_report', label: '状況報告 (situation_report)', description: '結果や変化の報告' },
   { value: 'external_event', label: '外部要因 (external_event)', description: '外部要因、環境変化の出来事報告' },
+  { value: 'other_excluded', label: 'その他（分析対象外）', description: '判別不能・分析対象外' },
 ];
+
+// スコープ外として自動設定するタイプ
+const OUT_OF_SCOPE_TYPES = ['external_event', 'stop_service', 'other_excluded'];
 
 const SCOPE_OPTIONS = [
   { value: 'in_scope', label: 'スコープ内', description: '目標行動や生活改善に関する変化表明' },
@@ -28,6 +32,7 @@ export default function Step6EvidenceType() {
   const { steps, data, updateRecord, bulkUpdateRecords, updateStepStatus, updateStepProgress } = useProjectStore();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'pending' | 'all'>('pending');
+  const [showDefinitions, setShowDefinitions] = useState(false);
   const step = steps[STEP_ID];
 
   // evidence_confirm=1 の行（確定したエビデンス）
@@ -97,7 +102,12 @@ export default function Step6EvidenceType() {
   };
 
   const handleTypeChange = (id: string, type: string) => {
-    updateRecord(id, { evidence_type_final: type });
+    // タイプに応じてスコープを自動設定
+    const autoScope = OUT_OF_SCOPE_TYPES.includes(type) ? 'out_of_scope' : 'in_scope';
+    updateRecord(id, {
+      evidence_type_final: type,
+      scope_final: autoScope,
+    });
     checkCompletion();
   };
 
@@ -181,7 +191,7 @@ export default function Step6EvidenceType() {
           disabled={step?.status === 'in_progress' || confirmedRecords.length === 0}
           className="px-6 py-2 rounded-lg font-medium bg-green-500 hover:bg-green-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
         >
-          デモ用仮判定
+          自動判定実行
         </button>
         <button
           onClick={handleClear}
@@ -190,6 +200,10 @@ export default function Step6EvidenceType() {
           一括クリア
         </button>
         <div className="flex items-center gap-2 ml-auto">
+          <span className="text-sm text-gray-600 font-medium">
+            完了: {assignedCount}/{confirmedRecords.length}件
+          </span>
+          <span className="text-gray-300">|</span>
           <span className="text-sm text-gray-500">表示:</span>
           <button
             onClick={() => setViewMode('pending')}
@@ -197,7 +211,7 @@ export default function Step6EvidenceType() {
               viewMode === 'pending' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700'
             }`}
           >
-            未完了のみ
+            未完了のみ ({displayRecords.length})
           </button>
           <button
             onClick={() => setViewMode('all')}
@@ -210,30 +224,41 @@ export default function Step6EvidenceType() {
         </div>
       </div>
 
-      {/* 定義パネル */}
-      <div className="mb-6 grid grid-cols-2 gap-4">
-        <div className="p-4 bg-blue-50 rounded-lg">
-          <h3 className="font-medium mb-2 text-blue-800">evidence_type 定義</h3>
-          <div className="space-y-1 text-sm">
-            {EVIDENCE_TYPES.map((type) => (
-              <div key={type.value} className="flex gap-2">
-                <span className="font-medium text-blue-600 whitespace-nowrap">{type.label}:</span>
-                <span className="text-gray-600">{type.description}</span>
+      {/* 定義パネル（折りたたみ可能） */}
+      <div className="mb-6">
+        <button
+          onClick={() => setShowDefinitions(!showDefinitions)}
+          className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-800 mb-2"
+        >
+          <span>{showDefinitions ? '▼' : '▶'}</span>
+          <span>タイプ・スコープ定義を{showDefinitions ? '隠す' : '表示'}</span>
+        </button>
+        {showDefinitions && (
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-4 bg-blue-50 rounded-lg">
+              <h3 className="font-medium mb-2 text-blue-800">evidence_type 定義</h3>
+              <div className="space-y-1 text-sm">
+                {EVIDENCE_TYPES.map((type) => (
+                  <div key={type.value} className="flex gap-2">
+                    <span className="font-medium text-blue-600 whitespace-nowrap">{type.label}:</span>
+                    <span className="text-gray-600">{type.description}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-        <div className="p-4 bg-purple-50 rounded-lg">
-          <h3 className="font-medium mb-2 text-purple-800">scope 定義</h3>
-          <div className="space-y-1 text-sm">
-            {SCOPE_OPTIONS.map((opt) => (
-              <div key={opt.value} className="flex gap-2">
-                <span className="font-medium text-purple-600 whitespace-nowrap">{opt.label}:</span>
-                <span className="text-gray-600">{opt.description}</span>
+            </div>
+            <div className="p-4 bg-purple-50 rounded-lg">
+              <h3 className="font-medium mb-2 text-purple-800">scope 定義</h3>
+              <div className="space-y-1 text-sm">
+                {SCOPE_OPTIONS.map((opt) => (
+                  <div key={opt.value} className="flex gap-2">
+                    <span className="font-medium text-purple-600 whitespace-nowrap">{opt.label}:</span>
+                    <span className="text-gray-600">{opt.description}</span>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="space-y-4">

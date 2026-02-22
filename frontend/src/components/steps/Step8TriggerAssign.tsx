@@ -106,12 +106,7 @@ export default function Step8TriggerAssign() {
         state: 'success',
         message: `完了: ${otherRecords.length}件中 ${excludedCount}件を除外`
       });
-
-      // 少し待ってから次のフェーズへ
-      setTimeout(() => {
-        setPhase('auto');
-        setProcessing({ state: 'idle' });
-      }, 1000);
+      // メッセージは消さない（ユーザーが確認できるように）
     } catch (error) {
       console.error('Exclude error:', error);
       setProcessing({ state: 'error', message: `エラー: ${error}` });
@@ -121,7 +116,7 @@ export default function Step8TriggerAssign() {
 
   // Step 4: 自動付与
   const handleAutoAssign = async () => {
-    setProcessing({ state: 'loading', message: 'トリガー分類中... (APIに接続中)' });
+    setProcessing({ state: 'loading', message: 'トリガー分類中...' });
     updateStepStatus('4', 'in_progress');
 
     try {
@@ -147,11 +142,7 @@ export default function Step8TriggerAssign() {
         state: 'success',
         message: `完了: ${updates.length}件中 ${assignedCount}件にトリガーを付与`
       });
-
-      setTimeout(() => {
-        setPhase('review');
-        setProcessing({ state: 'idle' });
-      }, 1000);
+      // メッセージは消さない（ユーザーが確認できるように）
     } catch (error) {
       console.error('Classify triggers error:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -343,14 +334,27 @@ export default function Step8TriggerAssign() {
       {/* Step 5: 確定 */}
       {phase === 'review' && (
         <div>
-          <p className="text-gray-600 mb-4">
-            確信度が低い{lowConfidenceRecords.length}件を確認・修正してください。
-            修正が終わったら「完了」を押してください。
-          </p>
+          {/* 操作説明と完了ボタンを上部に配置 */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <p className="text-blue-800 font-medium">操作: 確信度が低い項目を確認・修正</p>
+                <p className="text-blue-600 text-sm mt-1">
+                  進捗: {assignedRecords.length}件付与済 / 要確認: {lowConfidenceRecords.length}件
+                </p>
+              </div>
+              <button
+                onClick={handleComplete}
+                className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
+              >
+                確定して次へ
+              </button>
+            </div>
+          </div>
 
           {lowConfidenceRecords.length === 0 ? (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-              <p className="text-blue-700">確信度が低い項目はありません。</p>
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+              <p className="text-green-700">確信度が低い項目はありません。上の「確定して次へ」ボタンを押してください。</p>
             </div>
           ) : (
             <div className="space-y-3 mb-6">
@@ -399,12 +403,6 @@ export default function Step8TriggerAssign() {
           )}
 
           <div className="flex gap-4">
-            <button
-              onClick={handleComplete}
-              className="px-6 py-2 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white"
-            >
-              完了
-            </button>
             <button
               onClick={handleClear}
               className="px-6 py-2 rounded-lg font-medium bg-gray-500 hover:bg-gray-600 text-white"

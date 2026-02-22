@@ -60,6 +60,7 @@ export default function Step4EvidenceConfirm() {
     const updates = pendingRecords.map((r) => ({
       id: r.id,
       evidence_confirm: 1,
+      evidence_flag_strict: true, // バックエンドの自動判定用フラグ
     }));
     bulkUpdateRecords(updates);
     updateStepProgress(STEP_ID, candidates.length, candidates.length);
@@ -70,6 +71,7 @@ export default function Step4EvidenceConfirm() {
     updateRecord(id, {
       evidence_confirm: confirm,
       evidence_reason_if0: reason,
+      evidence_flag_strict: confirm === 1, // 確定時はtrueに設定
     });
 
     const newPending = candidates.filter(
