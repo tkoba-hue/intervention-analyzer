@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useProjectStore } from '@/store/projectStore';
 import { api } from '@/lib/api';
 import StepExplanation from '@/components/common/StepExplanation';
@@ -21,6 +22,14 @@ export default function Step8TriggerAssign() {
 
   const otherRecords = data.filter((r) => r.speaker === 'other' && !r.exclude_flag);
   const assignedCount = otherRecords.filter((r) => r.trigger_type_final.length > 0).length;
+
+  // 確信度が高い順にソート（サンプル表示用）
+  const topConfidenceRecords = useMemo(() => {
+    return [...otherRecords]
+      .filter((r) => r.trigger_type_final.length > 0)
+      .sort((a, b) => (b.trigger_type_confidence ?? 0) - (a.trigger_type_confidence ?? 0))
+      .slice(0, 50);
+  }, [otherRecords]);
 
   // トリガー種類別の集計
   const triggerStats = TRIGGER_TYPES.reduce((acc, type) => {
@@ -67,7 +76,11 @@ export default function Step8TriggerAssign() {
       <h2 className="text-2xl font-bold mb-4">Step 8: trigger 付与</h2>
       <p className="text-gray-600 mb-6">
         介入側（other）の発話にトリガー種類を自動付与します。
-        結果はStep 9で文脈リンクと合わせて確認できます。
+        {assignedCount > 0 && (
+          <span className="block mt-2 text-blue-600 font-medium">
+            仮でトリガーを自動付与しました。Step 9で確認・修正できます。
+          </span>
+        )}
       </p>
 
       <StepExplanation title="トリガー定義と優先度ルール" defaultExpanded={false}>
@@ -82,32 +95,24 @@ export default function Step8TriggerAssign() {
         </div>
       </StepExplanation>
 
+      {/* 統計表示 */}
       <div className="bg-gray-50 rounded-lg p-4 mb-6">
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div>
-            <span className="text-gray-500">other発話数:</span>
-            <span className="ml-2 font-medium">{otherRecords.length}</span>
-          </div>
-          <div>
-            <span className="text-gray-500">付与済:</span>
-            <span className="ml-2 font-medium text-green-600">{assignedCount}</span>
-          </div>
+        <div className="text-lg font-medium mb-3">
+          {otherRecords.length}件中 <span className="text-green-600">{assignedCount}件</span> にトリガー付与
         </div>
 
         {assignedCount > 0 && (
-          <div className="border-t pt-4">
-            <h4 className="text-sm font-medium text-gray-600 mb-2">優先度別集計</h4>
-            <div className="flex gap-4 text-sm">
-              <span className="text-red-600 font-medium">P1: {p1Count}件</span>
-              <span className="text-amber-600 font-medium">P2: {p2Count}件</span>
-              <span className="text-gray-600 font-medium">P3: {p3Count}件</span>
-            </div>
+          <div className="flex gap-6 text-sm">
+            <span className="text-red-600 font-medium">P1（積極介入）: {p1Count}件</span>
+            <span className="text-amber-600 font-medium">P2（継続支援）: {p2Count}件</span>
+            <span className="text-gray-600 font-medium">P3（関係維持）: {p3Count}件</span>
           </div>
         )}
       </div>
 
+      {/* トリガー定義 */}
       <div className="mb-6 p-4 bg-blue-50 rounded-lg">
-        <h3 className="font-medium mb-2">トリガー定義</h3>
+        <h3 className="font-medium mb-2">トリガー種類別の件数</h3>
         <div className="grid grid-cols-2 gap-2 text-sm">
           {TRIGGER_TYPES.map((type) => (
             <div key={type.value} className="flex gap-2">
@@ -116,18 +121,16 @@ export default function Step8TriggerAssign() {
                 type.priority === 2 ? 'text-amber-600' :
                 'text-gray-600'
               }`}>
-                P{type.priority} {type.value}:
+                {type.value}:
               </span>
-              <span className="text-gray-600">{type.description}</span>
-              {assignedCount > 0 && triggerStats[type.value] > 0 && (
-                <span className="text-gray-400">({triggerStats[type.value]}件)</span>
-              )}
+              <span className="text-gray-600">{triggerStats[type.value] || 0}件</span>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="flex gap-4">
+      {/* ボタン */}
+      <div className="flex gap-4 mb-6">
         <button
           onClick={handleAutoProcess}
           disabled={step.status === 'in_progress' || otherRecords.length === 0}
@@ -154,6 +157,52 @@ export default function Step8TriggerAssign() {
           一括クリア
         </button>
       </div>
+
+      {/* サンプル表示（確信度が高い50件） */}
+      {topConfidenceRecords.length > 0 && (
+        <>
+          <h3 className="font-medium text-gray-700 mb-3">
+            自動判定サンプル（確信度が高い{Math.min(50, topConfidenceRecords.length)}件）
+          </h3>
+          <div className="space-y-2 mb-4">
+            {topConfidenceRecords.map((record) => (
+              <div key={record.id} className="border rounded p-3 bg-white text-sm">
+                <div className="flex justify-between items-start mb-1">
+                  <span className="text-xs text-gray-400">#{record.id}</span>
+                  <div className="flex gap-1">
+                    {record.trigger_type_final.map((t) => {
+                      const type = TRIGGER_TYPES.find((tt) => tt.value === t);
+                      return (
+                        <span
+                          key={t}
+                          className={`text-xs px-2 py-0.5 rounded ${
+                            type?.priority === 1 ? 'bg-red-100 text-red-700' :
+                            type?.priority === 2 ? 'bg-amber-100 text-amber-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}
+                        >
+                          {t}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+                <p className="text-gray-700 line-clamp-2">{record.text_raw}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* 注記 */}
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-center">
+            <p className="text-amber-800 font-medium">
+              ※ 上記は確信度が高い{Math.min(50, topConfidenceRecords.length)}件のサンプルです（全{assignedCount}件に付与済み）
+            </p>
+            <p className="text-amber-600 text-sm mt-1">
+              トリガーの確認・修正は次のStep 9で行えます
+            </p>
+          </div>
+        </>
+      )}
     </div>
   );
 }

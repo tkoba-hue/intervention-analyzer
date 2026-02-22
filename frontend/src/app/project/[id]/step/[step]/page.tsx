@@ -134,17 +134,19 @@ export default function StepPage() {
           >
             前のステップ
           </button>
-          <button
-            onClick={() => router.push(`/project/${currentProjectId}/step/${stepNumber + 1}`)}
-            disabled={stepNumber >= 11 || steps[stepNumber]?.status !== 'completed'}
-            className={`px-6 py-2 rounded ${
-              stepNumber >= 11 || steps[stepNumber]?.status !== 'completed'
-                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                : 'bg-blue-500 text-white hover:bg-blue-600'
-            }`}
-          >
-            次のステップ
-          </button>
+          {stepNumber < 11 && (
+            <button
+              onClick={() => router.push(`/project/${currentProjectId}/step/${stepNumber + 1}`)}
+              disabled={steps[stepNumber]?.status !== 'completed'}
+              className={`px-6 py-2 rounded ${
+                steps[stepNumber]?.status !== 'completed'
+                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-500 text-white hover:bg-blue-600'
+              }`}
+            >
+              次のステップ
+            </button>
+          )}
         </div>
       </main>
     </div>
