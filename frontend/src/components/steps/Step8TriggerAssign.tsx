@@ -65,11 +65,15 @@ export default function Step8TriggerAssign() {
   );
 
   const lowConfidenceRecords = useMemo(() => {
-    return [...assignedRecords]
-      .filter((r) => (r.trigger_type_confidence ?? 1) < 0.7)
+    return [...otherRecords]
+      .filter((r) => !r.trigger_excluded)
+      .filter((r) =>
+        // 確信度が低い（要確認）OR タグが0個（修正中）
+        (r.trigger_type_confidence ?? 1) < 0.7 || r.trigger_type_final.length === 0
+      )
       .sort((a, b) => (a.trigger_type_confidence ?? 0) - (b.trigger_type_confidence ?? 0))
       .slice(0, 50);
-  }, [assignedRecords]);
+  }, [otherRecords]);
 
   const p1Count = assignedRecords.filter((r) =>
     r.trigger_type_final.some((t) => ['実行提案', '根拠提示', 'リフレーミング'].includes(t))
