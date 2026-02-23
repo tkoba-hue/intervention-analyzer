@@ -49,6 +49,9 @@ export default function Step8TriggerAssign() {
   const [phase, setPhase] = useState<Phase>(getPhaseFromStepId(currentStepId));
   const [processing, setProcessing] = useState<ProcessingStatus>({ state: 'idle' });
   const [expandedTextIds, setExpandedTextIds] = useState<Set<string>>(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
+  const [showAllRecords, setShowAllRecords] = useState(false);
+  const ITEMS_PER_PAGE = 50;
 
   useEffect(() => {
     setPhase(getPhaseFromStepId(currentStepId));
@@ -64,15 +67,34 @@ export default function Step8TriggerAssign() {
     !r.trigger_excluded && r.trigger_type_final.length > 0
   );
 
-  const lowConfidenceRecords = useMemo(() => {
+  // フィルタ後の全レコード
+  const filteredRecords = useMemo(() => {
     return [...otherRecords]
       .filter((r) => !r.trigger_excluded)
       .filter((r) =>
-        // 確信度が低い（要確認）OR タグが0個（修正中）
-        (r.trigger_type_confidence ?? 1) < 0.7 || r.trigger_type_final.length === 0
+        showAllRecords
+          ? true
+          : (r.trigger_type_confidence ?? 1) < 0.7 || r.trigger_type_final.length === 0
       )
-      .sort((a, b) => (a.trigger_type_confidence ?? 0) - (b.trigger_type_confidence ?? 0))
-      .slice(0, 50);
+      .sort((a, b) => (a.trigger_type_confidence ?? 0) - (b.trigger_type_confidence ?? 0));
+  }, [otherRecords, showAllRecords]);
+
+  // ページネーション
+  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / ITEMS_PER_PAGE));
+  const displayRecords = filteredRecords.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  // カウント
+  const lowConfidenceCount = useMemo(() => {
+    return otherRecords
+      .filter((r) => !r.trigger_excluded)
+      .filter((r) => (r.trigger_type_confidence ?? 1) < 0.7 || r.trigger_type_final.length === 0)
+      .length;
+  }, [otherRecords]);
+  const allRecordsCount = useMemo(() => {
+    return otherRecords.filter((r) => !r.trigger_excluded).length;
   }, [otherRecords]);
 
   const p1Count = assignedRecords.filter((r) =>
@@ -253,7 +275,7 @@ export default function Step8TriggerAssign() {
           </div>
           <div>
             <span className="text-gray-500">要確認:</span>
-            <span className="ml-2 font-medium text-amber-600">{lowConfidenceRecords.length}</span>
+            <span className="ml-2 font-medium text-amber-600">{lowConfidenceCount}</span>
           </div>
         </div>
         {assignedRecords.length > 0 && (
@@ -345,7 +367,7 @@ export default function Step8TriggerAssign() {
               <div>
                 <p className="text-blue-800 font-medium">操作: 確信度が低い項目を確認・修正</p>
                 <p className="text-blue-600 text-sm mt-1">
-                  進捗: {assignedRecords.length}件付与済 / 要確認: {lowConfidenceRecords.length}件
+                  進捗: {assignedRecords.length}件付与済 / 要確認: {lowConfidenceCount}件
                 </p>
               </div>
               <button
@@ -357,13 +379,58 @@ export default function Step8TriggerAssign() {
             </div>
           </div>
 
-          {lowConfidenceRecords.length === 0 ? (
+          {/* 表示モード切り替え */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => { setShowAllRecords(false); setCurrentPage(1); }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                !showAllRecords ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              要確認のみ ({lowConfidenceCount}件)
+            </button>
+            <button
+              onClick={() => { setShowAllRecords(true); setCurrentPage(1); }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                showAllRecords ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              全件表示 ({allRecordsCount}件)
+            </button>
+          </div>
+
+          {/* ページネーション */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1 rounded border disabled:opacity-50 hover:bg-gray-100"
+              >
+                ←
+              </button>
+              <span className="text-sm">
+                {currentPage} / {totalPages} ページ
+                （{filteredRecords.length}件中 {(currentPage - 1) * ITEMS_PER_PAGE + 1}-
+                {Math.min(currentPage * ITEMS_PER_PAGE, filteredRecords.length)}件）
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1 rounded border disabled:opacity-50 hover:bg-gray-100"
+              >
+                →
+              </button>
+            </div>
+          )}
+
+          {displayRecords.length === 0 ? (
             <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
               <p className="text-green-700">確信度が低い項目はありません。上の「確定して次へ」ボタンを押してください。</p>
             </div>
           ) : (
             <div className="space-y-3 mb-6">
-              {lowConfidenceRecords.map((record) => {
+              {displayRecords.map((record) => {
                 const confidence = record.trigger_type_confidence ?? 0;
                 return (
                   <div key={record.id} className="border border-blue-200 rounded-lg p-3 bg-white">
