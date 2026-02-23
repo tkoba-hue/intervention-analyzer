@@ -54,6 +54,7 @@ function getHighestPriorityTrigger(triggers: string[]): string | null {
 export default function Step11Export() {
   const { data, projectName, steps } = useProjectStore();
   const [activeTab, setActiveTab] = useState<'summary' | 'patterns' | 'timeline' | 'users' | 'log'>('summary');
+  const [expandedTimelineTexts, setExpandedTimelineTexts] = useState<Set<string>>(new Set());
 
   // スコープ内のエビデンス
   const inScopeRecords = data.filter((r) => r.evidence_confirm === 1 && r.scope_final === 'in_scope');
@@ -750,8 +751,21 @@ export default function Step11Export() {
                             }`}>
                               {evidence.evidence_type_final || 'unknown'}
                             </span>
-                            <span className="text-gray-600 ml-1">
-                              「{evidence.text_raw.slice(0, 25)}...」#{evidence.id}
+                            <span
+                              className="text-gray-600 ml-1 cursor-pointer hover:underline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const newSet = new Set(expandedTimelineTexts);
+                                newSet.has(evidence.id) ? newSet.delete(evidence.id) : newSet.add(evidence.id);
+                                setExpandedTimelineTexts(newSet);
+                              }}
+                              title="クリックで全文表示"
+                            >
+                              {expandedTimelineTexts.has(evidence.id)
+                                ? `「${evidence.text_raw}」`
+                                : `「${evidence.text_raw.slice(0, 25)}...」`
+                              }
+                              #{evidence.id}
                             </span>
                             {topTrigger && (
                               <span className="text-xs text-gray-400 ml-1">

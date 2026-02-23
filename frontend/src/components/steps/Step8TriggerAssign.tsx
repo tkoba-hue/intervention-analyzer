@@ -48,6 +48,7 @@ export default function Step8TriggerAssign() {
 
   const [phase, setPhase] = useState<Phase>(getPhaseFromStepId(currentStepId));
   const [processing, setProcessing] = useState<ProcessingStatus>({ state: 'idle' });
+  const [expandedTextIds, setExpandedTextIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setPhase(getPhaseFromStepId(currentStepId));
@@ -370,7 +371,19 @@ export default function Step8TriggerAssign() {
                         確信度 {Math.round(confidence * 100)}%
                       </span>
                     </div>
-                    <p className="text-gray-700 text-sm mb-3 line-clamp-2">{record.text_raw}</p>
+                    <p
+                      className={`text-gray-700 text-sm mb-3 cursor-pointer hover:bg-gray-50 rounded p-1 -m-1 ${
+                        !expandedTextIds.has(record.id) ? 'line-clamp-2' : ''
+                      }`}
+                      onClick={() => {
+                        const newSet = new Set(expandedTextIds);
+                        newSet.has(record.id) ? newSet.delete(record.id) : newSet.add(record.id);
+                        setExpandedTextIds(newSet);
+                      }}
+                      title="クリックで全文表示"
+                    >
+                      {record.text_raw}
+                    </p>
                     <div className="flex flex-wrap gap-1">
                       {TRIGGER_TYPES.map((type) => {
                         const isSelected = record.trigger_type_final.includes(type.value);

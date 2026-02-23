@@ -52,12 +52,12 @@ export default function Step9ContextLink() {
   };
 
   const getOtherOptions = (currentIndex: number) => {
-    const options: { id: string; text: string; datetime: string }[] = [];
+    const options: { id: string; fullText: string; datetime: string }[] = [];
     for (let i = currentIndex - 1; i >= Math.max(0, currentIndex - 10); i--) {
       if (data[i].speaker === 'other' && !data[i].exclude_flag) {
         options.push({
           id: data[i].id,
-          text: data[i].text_raw.slice(0, 100) + (data[i].text_raw.length > 100 ? '...' : ''),
+          fullText: data[i].text_raw,  // 全文を保持
           datetime: data[i].datetime,
         });
       }
@@ -154,21 +154,47 @@ export default function Step9ContextLink() {
                 <p className="text-gray-800 mt-1">{record.text_raw}</p>
               </div>
 
-              {/* リンク先選択 */}
+              {/* リンク先選択（ラジオボタン形式で全文表示） */}
               <div className="mb-4">
-                <label className="text-sm font-medium text-gray-600">リンク先のother発話:</label>
-                <select
-                  value={record.linked_prev_id || ''}
-                  onChange={(e) => handleChangeLink(record.id, e.target.value)}
-                  className="w-full mt-1 border rounded px-3 py-2 bg-white"
-                >
-                  <option value="">-- リンクなし --</option>
+                <label className="text-sm font-medium text-gray-600 block mb-2">リンク先のother発話:</label>
+                <div className="space-y-2 max-h-64 overflow-y-auto border rounded p-2 bg-gray-50">
+                  <label className={`flex items-start gap-2 p-2 rounded cursor-pointer ${
+                    !record.linked_prev_id ? 'bg-white border border-gray-300' : 'hover:bg-white'
+                  }`}>
+                    <input
+                      type="radio"
+                      name={`link-${record.id}`}
+                      value=""
+                      checked={!record.linked_prev_id}
+                      onChange={() => handleChangeLink(record.id, '')}
+                      className="mt-1"
+                    />
+                    <span className="text-gray-500">リンクなし</span>
+                  </label>
                   {otherOptions.map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      #{opt.id}: {opt.text}
-                    </option>
+                    <label
+                      key={opt.id}
+                      className={`flex items-start gap-2 p-2 rounded cursor-pointer ${
+                        record.linked_prev_id === opt.id
+                          ? 'bg-blue-50 border border-blue-300'
+                          : 'bg-white hover:bg-gray-100'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name={`link-${record.id}`}
+                        value={opt.id}
+                        checked={record.linked_prev_id === opt.id}
+                        onChange={() => handleChangeLink(record.id, opt.id)}
+                        className="mt-1"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs text-gray-500">#{opt.id} | {opt.datetime}</div>
+                        <p className="text-gray-800 text-sm whitespace-pre-wrap break-words">{opt.fullText}</p>
+                      </div>
+                    </label>
                   ))}
-                </select>
+                </div>
               </div>
 
               {/* リンク先の介入側発話（トリガー表示のみ） */}
