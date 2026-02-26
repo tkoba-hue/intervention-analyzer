@@ -126,6 +126,7 @@ interface ProjectState {
   bulkUpdateRecords: (updates: Array<{ id: string } & Partial<ChatRecord>>) => void;
   setColumnMapping: (mapping: ProjectState['columnMapping']) => void;
   canProceedToStep: (step: StepId) => boolean;
+  completeAllSteps: () => void;
   reset: () => void;
 }
 
@@ -217,6 +218,19 @@ export const useProjectStore = create<ProjectState>()(
           (dep) => state.steps[dep]?.status === 'completed'
         );
       },
+
+      completeAllSteps: () =>
+        set((state) => {
+          const completedSteps: Record<StepId, StepState> = {} as Record<StepId, StepState>;
+          for (const stepId of ALL_STEP_IDS) {
+            completedSteps[stepId] = {
+              ...state.steps[stepId],
+              status: 'completed',
+              lastUpdated: new Date().toISOString(),
+            };
+          }
+          return { steps: completedSteps };
+        }),
 
       reset: () =>
         set({

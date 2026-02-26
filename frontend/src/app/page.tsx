@@ -72,7 +72,7 @@ function autoDetectMapping(headers: string[], rawData: string[][]): Partial<Mapp
 
 export default function Home() {
   const router = useRouter();
-  const { setProject, setData, setColumnMapping, reset } = useProjectStore();
+  const { setProject, setData, setColumnMapping, completeAllSteps, reset } = useProjectStore();
 
   const [file, setFile] = useState<File | null>(null);
   const [rawData, setRawData] = useState<string[][]>([]);
@@ -236,6 +236,7 @@ export default function Home() {
       reset();
       setProject(projectId, projectName);
       setData(result.records);
+      completeAllSteps();
 
       router.push(`/project/${projectId}/step/11`);
     } catch (error) {
