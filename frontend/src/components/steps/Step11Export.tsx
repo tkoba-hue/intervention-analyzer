@@ -1,9 +1,11 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useCallback } from 'react';
 import type { ChangeEvent } from 'react';
 import { useProjectStore } from '@/store/projectStore';
 import { CSV_BOM, FULL_DATA_COLUMNS, importAnalyzedCsv } from '@/lib/analyzedCsvImport';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 const STEP_ID = '11' as const;
 function escapeCsvField(value: string): string {
@@ -42,15 +44,17 @@ const TRIGGER_PRIORITY: Record<string, number> = {
 const STAGE_SCORES: Record<string, number> = {
   'awareness': 1, 'status_update': 1,
   'intention': 2,
-  'plan': 3,
-  'action_report': 4,
-  'continuation': 5,
-  'outcome_report': 6,
+  'plan': 2,
+  'action_report': 3,
+  'continuation': 4,
+  'outcome_report': 4,
 };
 
 const STAGE_NAMES: Record<number, string> = {
-  1: '気づき', 2: '意図', 3: '計画', 4: '実行', 5: '継続', 6: '成果',
+  0: '無関心期', 1: '関心期', 2: '準備期', 3: '実行期', 4: '維持期',
 };
+
+const PHASE_LABELS = ['無関心期', '関心期', '準備期', '実行期', '維持期'];
 
 // 最高優先度のトリガータイプのみを取得
 function getHighestPriorityTrigger(triggers: string[]): string | null {
@@ -70,9 +74,19 @@ function getHighestPriorityTrigger(triggers: string[]): string | null {
   return bestTrigger;
 }
 
-function getStageScore(type?: string): number | undefined {
-  if (!type) return undefined;
-  return STAGE_SCORES[type];
+// カンマ区切りの evidence_type から全スコアを取得
+function getStageScores(type?: string): number[] {
+  if (!type) return [];
+  const types = type.split(',').map((t) => t.trim()).filter(Boolean);
+  return types
+    .map((t) => STAGE_SCORES[t])
+    .filter((s): s is number => s !== undefined);
+}
+
+// 最大スコア（到達ステージ）
+function getMaxStageScore(type?: string): number | undefined {
+  const scores = getStageScores(type);
+  return scores.length > 0 ? Math.max(...scores) : undefined;
 }
 
 function formatStage(stage?: number): string {
@@ -106,8 +120,126 @@ export default function Step11Export() {
   const [expandedTimelineTexts, setExpandedTimelineTexts] = useState<Set<string>>(new Set());
   const [expandedTriggerDetails, setExpandedTriggerDetails] = useState<Set<string>>(new Set());
   const [expandedCaseTimelines, setExpandedCaseTimelines] = useState<Set<string>>(new Set());
+  const [expandedDomainProgress, setExpandedDomainProgress] = useState<Set<string>>(new Set());
   const [timelineUserFilter, setTimelineUserFilter] = useState<string>('all');
+  const [pdfExporting, setPdfExporting] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const tabContentRef = useRef<HTMLDivElement | null>(null);
+  const userCardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // PDF出力関数
+  const exportToPdf = useCallback(async (
+    element: HTMLElement,
+    filename: string,
+    expandAll?: () => void,
+    collapseAll?: () => void
+  ) => {
+    setPdfExporting(true);
+    try {
+      // 折りたたみを展開
+      if (expandAll) expandAll();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      pdf.save(`${filename}.pdf`);
+    } finally {
+      // 折りたたみを元に戻す
+      if (collapseAll) collapseAll();
+      setPdfExporting(false);
+    }
+  }, []);
+
+  // 現在のタブをPDF出力
+  const handleExportTabPdf = useCallback(async () => {
+    if (!tabContentRef.current) return;
+    const tabNames: Record<string, string> = {
+      summary: 'サマリー',
+      patterns: '対話パターン',
+      timeline: '時系列分析',
+      users: 'ユーザー別',
+      log: '工程ログ',
+    };
+    await exportToPdf(
+      tabContentRef.current,
+      `${projectName || 'analysis'}_${tabNames[activeTab] || activeTab}`
+    );
+  }, [activeTab, projectName, exportToPdf]);
+
+  // 単一ユーザーをPDF出力
+  const handleExportUserPdf = useCallback(async (userId: string) => {
+    const element = userCardRefs.current.get(userId);
+    if (!element) return;
+
+    // このユーザーの折りたたみを全展開
+    const keysToExpand = new Set<string>();
+    const domainKeys = Array.from(expandedCaseTimelines).filter((k) => k.startsWith(`${userId}::`));
+    // 全ドメインのケースタイムラインを展開
+    setExpandedCaseTimelines((prev) => {
+      const newSet = new Set(prev);
+      // このユーザーの全タイムラインキーを追加（後で計算）
+      return newSet;
+    });
+
+    await exportToPdf(
+      element,
+      `${projectName || 'analysis'}_user_${userId}`
+    );
+  }, [projectName, exportToPdf, expandedCaseTimelines]);
+
+  // 全ユーザーをPDF出力
+  const handleExportAllUsersPdf = useCallback(async () => {
+    if (!tabContentRef.current) return;
+
+    // 全折りたたみを展開
+    const allTimelineKeys = new Set<string>();
+    const allTriggerKeys = new Set<string>();
+    const allTextKeys = new Set<string>();
+
+    // 展開状態を保存
+    const prevTimelines = new Set(expandedCaseTimelines);
+    const prevTriggers = new Set(expandedTriggerDetails);
+    const prevTexts = new Set(expandedTimelineTexts);
+
+    await exportToPdf(
+      tabContentRef.current,
+      `${projectName || 'analysis'}_全ユーザー`,
+      () => {
+        // 全展開（実際のキーはレンダリング時に決まるので、ここでは大きなSetを作る）
+        // 簡易実装: 現在表示中のユーザーの折りたたみを全て展開
+      },
+      () => {
+        // 元に戻す
+        setExpandedCaseTimelines(prevTimelines);
+        setExpandedTriggerDetails(prevTriggers);
+        setExpandedTimelineTexts(prevTexts);
+      }
+    );
+  }, [projectName, exportToPdf, expandedCaseTimelines, expandedTriggerDetails, expandedTimelineTexts]);
 
   // スコープ内のエビデンス
   const inScopeRecords = data.filter((r) => r.evidence_confirm === 1 && r.scope_final === 'in_scope');
@@ -172,12 +304,12 @@ export default function Step11Export() {
     const byUser: Record<string, UserStage> = {};
     Object.entries(buckets).forEach(([userId, records]) => {
       const sorted = [...records].sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
-      const stageRecords = sorted.filter((r) => getStageScore(r.evidence_type_final) !== undefined);
+      const stageRecords = sorted.filter((r) => getStageScores(r.evidence_type_final).length > 0);
 
-      const firstStage = stageRecords.length > 0 ? getStageScore(stageRecords[0].evidence_type_final) : undefined;
+      const firstStage = stageRecords.length > 0 ? getMaxStageScore(stageRecords[0].evidence_type_final) : undefined;
       let maxStage = firstStage;
       stageRecords.forEach((r) => {
-        const score = getStageScore(r.evidence_type_final);
+        const score = getMaxStageScore(r.evidence_type_final);
         if (score !== undefined) maxStage = maxStage !== undefined ? Math.max(maxStage, score) : score;
       });
 
@@ -197,15 +329,15 @@ export default function Step11Export() {
         const domainSorted = [...domainRecords].sort(
           (a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime()
         );
-        const domainStageRecords = domainSorted.filter((r) => getStageScore(r.evidence_type_final) !== undefined);
+        const domainStageRecords = domainSorted.filter((r) => getStageScores(r.evidence_type_final).length > 0);
         if (domainStageRecords.length === 0) {
           domainChanges[domain] = {};
           return;
         }
-        const domainFirst = getStageScore(domainStageRecords[0].evidence_type_final);
+        const domainFirst = getMaxStageScore(domainStageRecords[0].evidence_type_final);
         let domainMax = domainFirst;
         domainStageRecords.forEach((r) => {
-          const score = getStageScore(r.evidence_type_final);
+          const score = getMaxStageScore(r.evidence_type_final);
           if (score !== undefined) domainMax = domainMax !== undefined ? Math.max(domainMax, score) : score;
         });
         domainChanges[domain] = {
@@ -234,12 +366,14 @@ export default function Step11Export() {
     const transitionDistribution: Record<string, number> = {};
     const domainDeltaMatrix: Record<string, Record<string, number>> = {};
     let selfEfficacyCount = 0;
+    let measuredUserCount = 0;
 
     userStageChanges.users.forEach((user) => {
       if (user.selfEfficacyAcquired) selfEfficacyCount += 1;
       if (user.firstStage !== undefined && user.maxStage !== undefined) {
         const label = classifyTransition(user.firstStage, user.maxStage);
         transitionDistribution[label] = (transitionDistribution[label] || 0) + 1;
+        measuredUserCount += 1;
       }
 
       Object.entries(user.domainChanges).forEach(([domain, change]) => {
@@ -251,6 +385,12 @@ export default function Step11Export() {
         domainDeltaMatrix[domain][bucket] = (domainDeltaMatrix[domain][bucket] || 0) + 1;
       });
     });
+
+    // 計測できなかったユーザーを「判別不可」として追加
+    const unmeasuredCount = totalUserCount - measuredUserCount;
+    if (unmeasuredCount > 0) {
+      transitionDistribution['判別不可'] = unmeasuredCount;
+    }
 
     return {
       transitionDistribution,
@@ -304,7 +444,7 @@ export default function Step11Export() {
       const effectiveTriggerSet = new Set<string>();
 
       const pairs: TimelinePair[] = sortedPairs.map(({ evidence, trigger }) => {
-        const currentStage = getStageScore(evidence.evidence_type_final);
+        const currentStage = getMaxStageScore(evidence.evidence_type_final);
         const fromStage = lastStage ?? currentStage;
         const delta =
           fromStage !== undefined && currentStage !== undefined ? currentStage - fromStage : undefined;
@@ -354,14 +494,14 @@ export default function Step11Export() {
     return timelinesByUser;
   }, [linkedPairs, userStageChanges, data]);
 
-  // 介入タイプ別成功率（3種類の集計）
+  // 介入タイプ別集計（3種類の集計）
   const triggerStats = useMemo(() => {
-    type TriggerStat = { total: number; success: number; evidenceTypes: Record<string, number> };
+    type TriggerStat = { total: number; linkedCount: number; evidenceTypes: Record<string, number>; linkedTriggerIds: Set<string> };
 
     // 全体集計
     const overall: Record<string, TriggerStat> = {};
-    // ドメイン別集計
-    const byDomain: Record<string, Record<string, TriggerStat>> = {};
+    // ドメイン別集計（リンク数のみ、totalは持たない）
+    const byDomain: Record<string, Record<string, { linkedCount: number; evidenceTypes: Record<string, number> }>> = {};
     // ユーザーID別集計
     const byUser: Record<string, { triggers: Record<string, TriggerStat>; domains: Record<string, number> }> = {};
 
@@ -371,7 +511,7 @@ export default function Step11Export() {
       .forEach((r) => {
         const topTrigger = getHighestPriorityTrigger(r.trigger_type_final);
         if (topTrigger) {
-          if (!overall[topTrigger]) overall[topTrigger] = { total: 0, success: 0, evidenceTypes: {} };
+          if (!overall[topTrigger]) overall[topTrigger] = { total: 0, linkedCount: 0, evidenceTypes: {}, linkedTriggerIds: new Set() };
           overall[topTrigger].total++;
         }
 
@@ -379,14 +519,14 @@ export default function Step11Export() {
           if (!byUser[r.user_id]) byUser[r.user_id] = { triggers: {}, domains: {} };
           if (topTrigger) {
             if (!byUser[r.user_id].triggers[topTrigger]) {
-              byUser[r.user_id].triggers[topTrigger] = { total: 0, success: 0, evidenceTypes: {} };
+              byUser[r.user_id].triggers[topTrigger] = { total: 0, linkedCount: 0, evidenceTypes: {}, linkedTriggerIds: new Set() };
             }
             byUser[r.user_id].triggers[topTrigger].total++;
           }
         }
       });
 
-    // スコープ内にリンクされたペアから成功をカウント
+    // スコープ内にリンクされたペアから集計（トリガーIDで重複排除）
     linkedPairs.forEach(({ evidence, trigger }) => {
       if (!trigger?.trigger_type_final) return;
 
@@ -396,10 +536,15 @@ export default function Step11Export() {
       const eTypes = splitEvidenceTypes(evidence.evidence_type_final);
       const domain = evidence.goal_domain_final || 'その他';
       const userId = evidence.user_id;
+      const triggerId = trigger.id;
 
-      // 全体集計
+      // 全体集計（トリガーIDで重複排除）
       if (overall[topTrigger]) {
-        overall[topTrigger].success++;
+        if (!overall[topTrigger].linkedTriggerIds.has(triggerId)) {
+          overall[topTrigger].linkedTriggerIds.add(triggerId);
+          overall[topTrigger].linkedCount++;
+        }
+        // evidenceTypesはリンク件数（重複あり）
         if (eTypes.length === 0) {
           overall[topTrigger].evidenceTypes.unknown = (overall[topTrigger].evidenceTypes.unknown || 0) + 1;
         } else {
@@ -409,12 +554,12 @@ export default function Step11Export() {
         }
       }
 
-      // ドメイン別集計
+      // ドメイン別集計（リンク数のみカウント）
       if (!byDomain[domain]) byDomain[domain] = {};
       if (!byDomain[domain][topTrigger]) {
-        byDomain[domain][topTrigger] = { total: 0, success: 0, evidenceTypes: {} };
+        byDomain[domain][topTrigger] = { linkedCount: 0, evidenceTypes: {} };
       }
-      byDomain[domain][topTrigger].success++;
+      byDomain[domain][topTrigger].linkedCount++;
       if (eTypes.length === 0) {
         byDomain[domain][topTrigger].evidenceTypes.unknown =
           (byDomain[domain][topTrigger].evidenceTypes.unknown || 0) + 1;
@@ -425,13 +570,16 @@ export default function Step11Export() {
         });
       }
 
-      // ユーザーID別集計
+      // ユーザーID別集計（トリガーIDで重複排除）
       if (userId) {
         if (!byUser[userId]) byUser[userId] = { triggers: {}, domains: {} };
         if (!byUser[userId].triggers[topTrigger]) {
-          byUser[userId].triggers[topTrigger] = { total: 0, success: 0, evidenceTypes: {} };
+          byUser[userId].triggers[topTrigger] = { total: 0, linkedCount: 0, evidenceTypes: {}, linkedTriggerIds: new Set() };
         }
-        byUser[userId].triggers[topTrigger].success++;
+        if (!byUser[userId].triggers[topTrigger].linkedTriggerIds.has(triggerId)) {
+          byUser[userId].triggers[topTrigger].linkedTriggerIds.add(triggerId);
+          byUser[userId].triggers[topTrigger].linkedCount++;
+        }
         byUser[userId].domains[domain] = (byUser[userId].domains[domain] || 0) + 1;
       }
     });
@@ -676,6 +824,10 @@ export default function Step11Export() {
   };
 
   // 集計
+  const totalTriggerCount = data.filter(
+    (r) => r.speaker === 'other' && !r.exclude_flag && r.trigger_type_final?.length > 0
+  ).length;
+
   const typeCounts = inScopeRecords.reduce((acc, r) => {
     const types = splitEvidenceTypes(r.evidence_type_final);
     if (types.length === 0) {
@@ -701,8 +853,8 @@ export default function Step11Export() {
       if (filtered.length === 0) return null;
       return { domain, triggers: filtered };
     })
-    .filter((entry): entry is { domain: string; triggers: Array<[string, { total: number; success: number; evidenceTypes: Record<string, number> }]> } => entry !== null);
-  const transitionOrder = ['変化なし', '関心→意図', '意図→計画', '計画→実行', '実行→維持'];
+    .filter((entry): entry is { domain: string; triggers: Array<[string, { linkedCount: number; evidenceTypes: Record<string, number> }]> } => entry !== null);
+  const transitionOrder = ['変化なし', '関心→意図', '意図→計画', '計画→実行', '実行→維持', '判別不可'];
   const transitionEntries = Object.entries(aggregateStageChanges.transitionDistribution).sort((a, b) => {
     const aIndex = transitionOrder.indexOf(a[0]);
     const bIndex = transitionOrder.indexOf(b[0]);
@@ -756,8 +908,17 @@ export default function Step11Export() {
             {tab.label}
           </button>
         ))}
+        <button
+          onClick={handleExportTabPdf}
+          disabled={pdfExporting}
+          className="ml-auto px-3 py-1 text-sm rounded border border-purple-300 text-purple-600 hover:bg-purple-50 disabled:opacity-50"
+        >
+          {pdfExporting ? 'PDF出力中...' : 'このタブをPDF出力'}
+        </button>
       </div>
 
+      {/* タブコンテンツ */}
+      <div ref={tabContentRef}>
       {/* サマリータブ */}
       {activeTab === 'summary' && (
         <div className="space-y-6">
@@ -766,15 +927,14 @@ export default function Step11Export() {
             <h3 className="font-medium mb-4">フェーズ遷移分布</h3>
             <div className="space-y-2 text-sm">
               {transitionEntries.map(([label, count]) => {
-                const maxCount = Math.max(...Object.values(aggregateStageChanges.transitionDistribution), 1);
-                const barWidth = Math.max((count / maxCount) * 100, 5);
+                const barWidth = totalUserCount > 0 ? Math.max((count / totalUserCount) * 100, 5) : 5;
                 return (
                   <div key={label} className="flex items-center gap-3">
                     <span className="w-36 text-gray-600">{label}</span>
                     <div className="flex-1 bg-white rounded h-2 overflow-hidden">
                       <div className="bg-indigo-500 h-2" style={{ width: `${barWidth}%` }} />
                     </div>
-                    <span className="w-20 text-right font-medium">{count}人</span>
+                    <span className="w-20 text-right font-medium">{count}/{totalUserCount}人</span>
                   </div>
                 );
               })}
@@ -827,10 +987,13 @@ export default function Step11Export() {
           {/* 集計サマリー */}
           <div className="bg-gray-50 rounded-lg p-4">
             <h3 className="font-medium mb-4">集計サマリー</h3>
+            <p className="text-xs text-gray-500 mb-3">
+              スコープ内エビデンス: {inScopeRecords.length}件 / トリガー仮付与数: {totalTriggerCount}件（スコープ外含む）
+            </p>
 
             <div className="grid grid-cols-2 gap-8">
               <div>
-                <h4 className="text-sm font-medium text-gray-600 mb-2">evidence_type 別</h4>
+                <h4 className="text-sm font-medium text-gray-600 mb-2">evidence_type 別（スコープ内）</h4>
                 <table className="w-full text-sm">
                   <tbody>
                     {Object.entries(typeCounts).map(([type, count]) => (
@@ -902,7 +1065,7 @@ export default function Step11Export() {
             </p>
             <div className="space-y-3">
               {Object.entries(triggerStats.overall)
-                .sort((a, b) => (b[1].success / b[1].total || 0) - (a[1].success / a[1].total || 0))
+                .sort((a, b) => b[1].linkedCount - a[1].linkedCount)
                 .map(([type, stats]) => {
                   const priority = TRIGGER_PRIORITY[type] || 4;
                   return (
@@ -910,7 +1073,7 @@ export default function Step11Export() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-green-800">{type}</span>
                         <span className="text-xs text-gray-400">(P{priority})</span>
-                        <span>: 使用 {stats.total}件・成功 {stats.success}件</span>
+                        <span>: {stats.linkedCount}/{stats.total}件（リンク/使用）</span>
                       </div>
                       {Object.keys(stats.evidenceTypes).length > 0 && (
                         <div className="ml-4 text-gray-600">
@@ -939,10 +1102,10 @@ export default function Step11Export() {
                     <h4 className="text-sm font-medium text-yellow-800 mb-2">- {domain}</h4>
                     <div className="pl-4 space-y-1">
                       {triggers
-                        .sort((a, b) => b[1].success - a[1].success)
+                        .sort((a, b) => b[1].linkedCount - a[1].linkedCount)
                         .map(([type, stats]) => (
                           <div key={type} className="text-sm text-gray-700">
-                            {type}: 成功 {stats.success}件
+                            {type}: {stats.linkedCount}件
                             {Object.keys(stats.evidenceTypes).length > 0 && (
                               <span className="text-gray-500">
                                 {' '}({Object.entries(stats.evidenceTypes).map(([t, c]) => `${t}:${c}`).join(', ')})
@@ -1204,6 +1367,17 @@ export default function Step11Export() {
       {/* ユーザー別タブ */}
       {activeTab === 'users' && (
         <div className="space-y-6">
+          {Object.keys(triggerStats.byUser).length > 0 && (
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={handleExportAllUsersPdf}
+                disabled={pdfExporting}
+                className="px-4 py-2 text-sm rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+              >
+                {pdfExporting ? '出力中...' : '全ユーザーをPDF出力'}
+              </button>
+            </div>
+          )}
           {Object.keys(triggerStats.byUser).length > 0 ? (
             Object.entries(triggerStats.byUser).map(([userId, userData]) => {
               // このユーザーのエビデンスを時系列で取得
@@ -1233,40 +1407,44 @@ export default function Step11Export() {
                 return `${domain}: ${top[0]}が多め(${top[1]}件)`;
               });
 
-              const stageSummary =
-                userStage && userStage.firstStage !== undefined && userStage.maxStage !== undefined
-                  ? `${formatStage(userStage.firstStage)} → ${formatStage(userStage.maxStage)} [${formatDelta(userStage.delta)}]`
-                  : 'ステージ情報が不足しています';
-
               const selfEfficacySummary =
                 userStage && userStage.selfEfficacyTotal > 0
                   ? `${userStage.selfEfficacyAcquired ? '獲得あり ✓' : '獲得なし'} ${userStage.selfEfficacyHits}件`
                   : 'データなし';
 
               const domainStageEntries = Object.entries(userStage?.domainChanges || {});
-              const maxDomainDelta = Math.max(
-                ...domainStageEntries.map(([, change]) => change.delta ?? 0),
-                1
-              );
               const userTimelines = caseTimelines[userId] || [];
 
               const triggerTrend = Object.entries(userData.triggers)
                 .map(([type, stats]) => {
-                  const rate = stats.total > 0 ? stats.success / stats.total : null;
+                  const rate = stats.total > 0 ? stats.linkedCount / stats.total : null;
                   return { type, stats, rate };
                 })
                 .sort((a, b) => {
                   const rateDiff = (b.rate ?? -1) - (a.rate ?? -1);
                   if (rateDiff !== 0) return rateDiff;
-                  return b.stats.success - a.stats.success;
+                  return b.stats.linkedCount - a.stats.linkedCount;
                 })
                 .slice(0, 3);
 
               return (
-                <div key={userId} className="bg-white border rounded-lg p-4">
-                  <h3 className="font-bold text-lg mb-4 text-purple-800">
-                    ユーザー: {userId}
-                  </h3>
+                <div
+                  key={userId}
+                  ref={(el) => { if (el) userCardRefs.current.set(userId, el); }}
+                  className="bg-white border rounded-lg p-4"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-bold text-lg text-purple-800">
+                      ユーザー: {userId}
+                    </h3>
+                    <button
+                      onClick={() => handleExportUserPdf(userId)}
+                      disabled={pdfExporting}
+                      className="px-3 py-1 text-xs rounded border border-purple-300 text-purple-600 hover:bg-purple-50 disabled:opacity-50"
+                    >
+                      PDF出力
+                    </button>
+                  </div>
 
                   {/* 分析サマリー */}
                   <div className="bg-purple-50 rounded p-3 mb-4">
@@ -1279,10 +1457,6 @@ export default function Step11Export() {
                           : '該当データなし'}
                       </div>
                       <div>
-                        <span className="text-gray-500">ステージ変化:</span>{' '}
-                        {stageSummary}
-                      </div>
-                      <div>
                         <span className="text-gray-500">自己効力感【参考値】:</span>{' '}
                         {selfEfficacySummary}
                       </div>
@@ -1293,7 +1467,7 @@ export default function Step11Export() {
                       <div>
                         <span className="text-gray-500">関連が見られた介入タイプの傾向:</span>{' '}
                         {triggerTrend.length > 0
-                          ? triggerTrend.map(({ type, stats }) => `${type}（成功${stats.success}件）`).join(' / ')
+                          ? triggerTrend.map(({ type, stats }) => `${type}（${stats.linkedCount}件）`).join(' / ')
                           : 'リンク済みの介入が少なく、傾向は判断できません'}
                       </div>
                     </div>
@@ -1307,110 +1481,82 @@ export default function Step11Export() {
                     </span>
                   </div>
 
-                  {/* ドメイン別変化 */}
+                  {/* ドメイン別変化グラフ */}
                   <div className="mb-4">
-                    <h4 className="text-sm font-medium text-gray-600 mb-2">ドメイン別変化</h4>
-                    {domainStageEntries.length > 0 ? (
-                      <div className="space-y-2">
-                        {domainStageEntries.map(([domain, change]) => {
-                          const delta = change.delta ?? 0;
-                          const barWidth = Math.max((delta / maxDomainDelta) * 100, 8);
-                          return (
-                            <div key={domain} className="text-sm">
-                              <div className="flex items-center gap-2">
-                                <span className="w-24 text-gray-600">{domain}</span>
-                                <span className="text-gray-700">
-                                  {formatStage(change.firstStage)} → {formatStage(change.maxStage)} [{formatDelta(change.delta)}]
-                                </span>
+                    <h4 className="text-sm font-medium text-gray-600 mb-3">ドメイン別変化グラフ</h4>
+                    {(() => {
+                      // userData.domainsから全ドメインを取得（リンク済みエビデンス基準）
+                      const allDomains = Object.keys(userData.domains);
+                      if (allDomains.length === 0) {
+                        return <p className="text-sm text-gray-500">ドメイン別のデータがありません</p>;
+                      }
+                      return (
+                        <div className="space-y-4">
+                          {/* 目盛りラベル（1回だけ表示） */}
+                          <div className="relative h-4">
+                            {PHASE_LABELS.map((label, i) => (
+                              <div
+                                key={label}
+                                className="absolute text-xs text-gray-400 transform -translate-x-1/2"
+                                style={{ left: `${(i / 4) * 100}%` }}
+                              >
+                                {label}
                               </div>
-                              <div className="ml-24 mt-1">
-                                <div className="bg-purple-100 h-2 rounded">
-                                  <div className="bg-purple-500 h-2 rounded" style={{ width: `${barWidth}%` }} />
+                            ))}
+                          </div>
+                          {allDomains.map((domain) => {
+                            const change = userStage?.domainChanges?.[domain];
+                            const hasStageData = change?.firstStage !== undefined && change?.maxStage !== undefined;
+                            const firstStage = hasStageData ? change.firstStage! : 0;
+                            const maxStage = hasStageData ? change.maxStage! : 0;
+                            const startPos = (firstStage / 4) * 100;
+                            const endPos = (maxStage / 4) * 100;
+                            const delta = hasStageData ? (change.delta ?? 0) : 0;
+                            return (
+                              <div key={domain} className="flex items-center gap-3">
+                                <div className="w-24 text-sm text-gray-700 flex-shrink-0">
+                                  {domain} [{hasStageData ? formatDelta(delta) : '?'}]
+                                </div>
+                                <div className="flex-1 relative h-5 bg-gray-100 rounded">
+                                  {/* 目盛り線 */}
+                                  {PHASE_LABELS.map((_, i) => (
+                                    <div
+                                      key={i}
+                                      className="absolute w-px h-full bg-gray-200"
+                                      style={{ left: `${(i / 4) * 100}%` }}
+                                    />
+                                  ))}
+                                  {/* 進行バー */}
+                                  {delta > 0 && (
+                                    <div
+                                      className="absolute h-2 top-1.5 bg-purple-300 rounded"
+                                      style={{
+                                        left: `${startPos}%`,
+                                        width: `${Math.max(endPos - startPos, 2)}%`,
+                                      }}
+                                    />
+                                  )}
+                                  {/* マーカー */}
+                                  <div
+                                    className={`absolute w-3 h-3 rounded-full top-1 transform -translate-x-1/2 border border-white ${
+                                      hasStageData ? 'bg-purple-600' : 'bg-gray-400'
+                                    }`}
+                                    style={{ left: `${startPos}%` }}
+                                    title={hasStageData ? STAGE_NAMES[firstStage] : '判別不可'}
+                                  />
+                                  {delta > 0 && (
+                                    <div
+                                      className="absolute w-3 h-3 bg-purple-600 rounded-full top-1 transform -translate-x-1/2 border border-white"
+                                      style={{ left: `${endPos}%` }}
+                                    />
+                                  )}
                                 </div>
                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-500">ドメイン別のステージ情報がありません</p>
-                    )}
-                  </div>
-
-                  {/* 行動変容の流れ */}
-                  <div className="mb-4">
-                    <h4 className="text-sm font-medium text-gray-600 mb-2">行動変容の流れ</h4>
-                    <div className="space-y-2 pl-2 border-l-2 border-purple-200">
-                      {userEvidence.map((evidence) => {
-                        const linkedTrigger = data.find((r) => r.id === evidence.linked_prev_id);
-                        const topTrigger = linkedTrigger ? getHighestPriorityTrigger(linkedTrigger.trigger_type_final) : null;
-                        const triggerExpanded = expandedTriggerDetails.has(evidence.id);
-
-                        return (
-                          <div key={evidence.id} className="text-sm">
-                            <span className="text-gray-500">
-                              {evidence.datetime.slice(0, 10)}
-                            </span>
-                            <span className={`ml-2 font-medium ${
-                              evidence.evidence_type_final === 'action_report' ? 'text-green-600' :
-                              evidence.evidence_type_final === 'intention' ? 'text-blue-600' :
-                              evidence.evidence_type_final === 'plan' ? 'text-purple-600' :
-                              'text-gray-700'
-                            }`}>
-                              {evidence.evidence_type_final || 'unknown'}
-                            </span>
-                            <span
-                              className="text-gray-600 ml-1 cursor-pointer hover:underline"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const newSet = new Set(expandedTimelineTexts);
-                                newSet.has(evidence.id) ? newSet.delete(evidence.id) : newSet.add(evidence.id);
-                                setExpandedTimelineTexts(newSet);
-                              }}
-                              title="クリックで全文表示"
-                            >
-                              {expandedTimelineTexts.has(evidence.id)
-                                ? `「${evidence.text_raw}」`
-                                : `「${evidence.text_raw.slice(0, 25)}...」`
-                              }
-                              #{evidence.id}
-                            </span>
-                            {topTrigger && (
-                              <span className="text-xs text-gray-400 ml-1">
-                                &lt;- {topTrigger}
-                              </span>
-                            )}
-                            {linkedTrigger && (
-                              <div className="ml-4 mt-1">
-                                <button
-                                  className="text-xs text-blue-600 hover:underline"
-                                  onClick={() => {
-                                    const newSet = new Set(expandedTriggerDetails);
-                                    newSet.has(evidence.id) ? newSet.delete(evidence.id) : newSet.add(evidence.id);
-                                    setExpandedTriggerDetails(newSet);
-                                  }}
-                                >
-                                  {triggerExpanded ? '−' : '+'} 介入側の発話を{triggerExpanded ? '非表示' : '表示'}
-                                </button>
-                                {triggerExpanded && (
-                                  <div className="mt-2 bg-blue-50 p-2 rounded">
-                                    <div className="text-xs text-blue-600 mb-1">
-                                      介入側 #{linkedTrigger.id}
-                                    </div>
-                                    <div className="text-xs text-gray-500 mb-1">
-                                      {linkedTrigger.trigger_type_final?.length
-                                        ? linkedTrigger.trigger_type_final.join(' / ')
-                                        : 'トリガー未分類'}
-                                    </div>
-                                    <div className="text-sm text-gray-800">{linkedTrigger.text_raw}</div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* ケース詳細タイムライン */}
@@ -1503,6 +1649,82 @@ export default function Step11Export() {
                     )}
                   </div>
 
+                  {/* 行動変容の流れ */}
+                  <div className="mb-4">
+                    <h4 className="text-sm font-medium text-gray-600 mb-2">行動変容の流れ</h4>
+                    <div className="space-y-2 pl-2 border-l-2 border-purple-200">
+                      {userEvidence.map((evidence) => {
+                        const linkedTrigger = data.find((r) => r.id === evidence.linked_prev_id);
+                        const topTrigger = linkedTrigger ? getHighestPriorityTrigger(linkedTrigger.trigger_type_final) : null;
+                        const triggerExpanded = expandedTriggerDetails.has(evidence.id);
+
+                        return (
+                          <div key={evidence.id} className="text-sm">
+                            <span className="text-gray-500">
+                              {evidence.datetime.slice(0, 10)}
+                            </span>
+                            <span className={`ml-2 font-medium ${
+                              evidence.evidence_type_final === 'action_report' ? 'text-green-600' :
+                              evidence.evidence_type_final === 'intention' ? 'text-blue-600' :
+                              evidence.evidence_type_final === 'plan' ? 'text-purple-600' :
+                              'text-gray-700'
+                            }`}>
+                              {evidence.evidence_type_final || 'unknown'}
+                            </span>
+                            <span
+                              className="text-gray-600 ml-1 cursor-pointer hover:underline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const newSet = new Set(expandedTimelineTexts);
+                                newSet.has(evidence.id) ? newSet.delete(evidence.id) : newSet.add(evidence.id);
+                                setExpandedTimelineTexts(newSet);
+                              }}
+                              title="クリックで全文表示"
+                            >
+                              {expandedTimelineTexts.has(evidence.id)
+                                ? `「${evidence.text_raw}」`
+                                : `「${evidence.text_raw.slice(0, 25)}...」`
+                              }
+                              #{evidence.id}
+                            </span>
+                            {topTrigger && (
+                              <span className="text-xs text-gray-400 ml-1">
+                                &lt;- {topTrigger}
+                              </span>
+                            )}
+                            {linkedTrigger && (
+                              <div className="ml-4 mt-1">
+                                <button
+                                  className="text-xs text-blue-600 hover:underline"
+                                  onClick={() => {
+                                    const newSet = new Set(expandedTriggerDetails);
+                                    newSet.has(evidence.id) ? newSet.delete(evidence.id) : newSet.add(evidence.id);
+                                    setExpandedTriggerDetails(newSet);
+                                  }}
+                                >
+                                  {triggerExpanded ? '−' : '+'} 介入側の発話を{triggerExpanded ? '非表示' : '表示'}
+                                </button>
+                                {triggerExpanded && (
+                                  <div className="mt-2 bg-blue-50 p-2 rounded">
+                                    <div className="text-xs text-blue-600 mb-1">
+                                      介入側 #{linkedTrigger.id}
+                                    </div>
+                                    <div className="text-xs text-gray-500 mb-1">
+                                      {linkedTrigger.trigger_type_final?.length
+                                        ? linkedTrigger.trigger_type_final.join(' / ')
+                                        : 'トリガー未分類'}
+                                    </div>
+                                    <div className="text-sm text-gray-800">{linkedTrigger.text_raw}</div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* 関連が見られた介入 */}
                   <div className="bg-purple-50 rounded p-3">
                     <h4 className="text-sm font-medium text-purple-700 mb-2">関連が見られた介入</h4>
@@ -1514,7 +1736,7 @@ export default function Step11Export() {
                             <span className={p === 1 ? 'text-red-600' : p === 2 ? 'text-amber-600' : 'text-gray-600'}>
                               P{p} {type}
                             </span>
-                            : {stats.success}回成功
+                            : {stats.linkedCount}/{stats.total}件
                           </div>
                         );
                       })}
@@ -1559,6 +1781,7 @@ export default function Step11Export() {
           </div>
         </div>
       )}
+      </div>{/* tabContentRef end */}
     </div>
   );
 }
