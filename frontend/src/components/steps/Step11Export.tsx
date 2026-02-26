@@ -42,12 +42,11 @@ const TRIGGER_PRIORITY: Record<string, number> = {
 };
 
 const STAGE_SCORES: Record<string, number> = {
-  'awareness': 1, 'status_update': 1,
+  'awareness': 1,
   'intention': 2,
   'plan': 2,
   'action_report': 3,
   'continuation': 4,
-  'outcome_report': 4,
 };
 
 const STAGE_NAMES: Record<number, string> = {
@@ -304,7 +303,7 @@ export default function Step11Export() {
     const byUser: Record<string, UserStage> = {};
     Object.entries(buckets).forEach(([userId, records]) => {
       const sorted = [...records].sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
-      const stageRecords = sorted.filter((r) => getStageScores(r.evidence_type_final).length > 0);
+      const stageRecords = sorted.filter((r) => r.linked_prev_id);
 
       const firstStage = stageRecords.length > 0 ? getStageScores(stageRecords[0].evidence_type_final)[0] : undefined;
       let maxStage = firstStage;
@@ -329,7 +328,7 @@ export default function Step11Export() {
         const domainSorted = [...domainRecords].sort(
           (a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime()
         );
-        const domainStageRecords = domainSorted.filter((r) => getStageScores(r.evidence_type_final).length > 0);
+        const domainStageRecords = domainSorted.filter((r) => r.linked_prev_id);
         if (domainStageRecords.length === 0) {
           domainChanges[domain] = {};
           return;
