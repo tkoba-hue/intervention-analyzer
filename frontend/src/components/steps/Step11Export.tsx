@@ -85,6 +85,21 @@ function formatDelta(delta?: number): string {
   return delta >= 0 ? `+${delta}` : `${delta}`;
 }
 
+function classifyTransition(first: number, max: number): string {
+  const delta = max - first;
+  if (delta === 0) return '変化なし';
+  if (first <= 1 && max >= 2) return '関心→意図';
+  if (first <= 2 && max === 3) return '意図→計画';
+  if (first <= 3 && max === 4) return '計画→実行';
+  if (first === 4 && max >= 5) return '実行→維持';
+  return `+${delta}段階`;
+}
+
+function splitEvidenceTypes(typeStr?: string): string[] {
+  if (!typeStr) return [];
+  return typeStr.split(',').map((t) => t.trim()).filter(Boolean);
+}
+
 export default function Step11Export() {
   const { data, projectName, setData } = useProjectStore();
   const [activeTab, setActiveTab] = useState<'summary' | 'patterns' | 'timeline' | 'users' | 'log'>('summary');
@@ -96,6 +111,13 @@ export default function Step11Export() {
 
   // スコープ内のエビデンス
   const inScopeRecords = data.filter((r) => r.evidence_confirm === 1 && r.scope_final === 'in_scope');
+  const totalUserCount = useMemo(() => {
+    const ids = new Set<string>();
+    data.forEach((r) => {
+      if (r.user_id) ids.add(r.user_id);
+    });
+    return ids.size;
+  }, [data]);
 
   // トリガー->エビデンスのペア
   const linkedPairs = useMemo(() => {
@@ -209,15 +231,15 @@ export default function Step11Export() {
   }, [inScopeRecords]);
 
   const aggregateStageChanges = useMemo(() => {
-    const deltaDistribution: Record<string, number> = { '0': 0, '1': 0, '2': 0, '3+': 0 };
+    const transitionDistribution: Record<string, number> = {};
     const domainDeltaMatrix: Record<string, Record<string, number>> = {};
     let selfEfficacyCount = 0;
 
     userStageChanges.users.forEach((user) => {
       if (user.selfEfficacyAcquired) selfEfficacyCount += 1;
-      if (user.delta !== undefined) {
-        const bucket = user.delta >= 3 ? '3+' : String(user.delta);
-        deltaDistribution[bucket] = (deltaDistribution[bucket] || 0) + 1;
+      if (user.firstStage !== undefined && user.maxStage !== undefined) {
+        const label = classifyTransition(user.firstStage, user.maxStage);
+        transitionDistribution[label] = (transitionDistribution[label] || 0) + 1;
       }
 
       Object.entries(user.domainChanges).forEach(([domain, change]) => {
@@ -231,12 +253,12 @@ export default function Step11Export() {
     });
 
     return {
-      deltaDistribution,
+      transitionDistribution,
       domainDeltaMatrix,
       selfEfficacyCount,
-      totalUsers: userStageChanges.users.length,
+      totalUsers: totalUserCount,
     };
-  }, [userStageChanges]);
+  }, [userStageChanges, totalUserCount]);
 
   const caseTimelines = useMemo(() => {
     type TimelinePair = {
@@ -371,14 +393,20 @@ export default function Step11Export() {
       const topTrigger = getHighestPriorityTrigger(trigger.trigger_type_final);
       if (!topTrigger) return;
 
-      const eType = evidence.evidence_type_final || 'unknown';
+      const eTypes = splitEvidenceTypes(evidence.evidence_type_final);
       const domain = evidence.goal_domain_final || 'その他';
       const userId = evidence.user_id;
 
       // 全体集計
       if (overall[topTrigger]) {
         overall[topTrigger].success++;
-        overall[topTrigger].evidenceTypes[eType] = (overall[topTrigger].evidenceTypes[eType] || 0) + 1;
+        if (eTypes.length === 0) {
+          overall[topTrigger].evidenceTypes.unknown = (overall[topTrigger].evidenceTypes.unknown || 0) + 1;
+        } else {
+          eTypes.forEach((eType) => {
+            overall[topTrigger].evidenceTypes[eType] = (overall[topTrigger].evidenceTypes[eType] || 0) + 1;
+          });
+        }
       }
 
       // ドメイン別集計
@@ -387,8 +415,15 @@ export default function Step11Export() {
         byDomain[domain][topTrigger] = { total: 0, success: 0, evidenceTypes: {} };
       }
       byDomain[domain][topTrigger].success++;
-      byDomain[domain][topTrigger].evidenceTypes[eType] =
-        (byDomain[domain][topTrigger].evidenceTypes[eType] || 0) + 1;
+      if (eTypes.length === 0) {
+        byDomain[domain][topTrigger].evidenceTypes.unknown =
+          (byDomain[domain][topTrigger].evidenceTypes.unknown || 0) + 1;
+      } else {
+        eTypes.forEach((eType) => {
+          byDomain[domain][topTrigger].evidenceTypes[eType] =
+            (byDomain[domain][topTrigger].evidenceTypes[eType] || 0) + 1;
+        });
+      }
 
       // ユーザーID別集計
       if (userId) {
@@ -430,8 +465,14 @@ export default function Step11Export() {
       // エビデンス集計（スコープ内のみ）
       if (r.evidence_confirm === 1 && r.scope_final === 'in_scope') {
         weeks[week].evidenceTotal++;
-        const type = r.evidence_type_final || 'unknown';
-        weeks[week].types[type] = (weeks[week].types[type] || 0) + 1;
+        const types = splitEvidenceTypes(r.evidence_type_final);
+        if (types.length === 0) {
+          weeks[week].types.unknown = (weeks[week].types.unknown || 0) + 1;
+        } else {
+          types.forEach((type) => {
+            weeks[week].types[type] = (weeks[week].types[type] || 0) + 1;
+          });
+        }
 
         if (r.goal_domain_final) {
           const domain = r.goal_domain_final;
@@ -636,8 +677,14 @@ export default function Step11Export() {
 
   // 集計
   const typeCounts = inScopeRecords.reduce((acc, r) => {
-    const type = r.evidence_type_final || 'unknown';
-    acc[type] = (acc[type] || 0) + 1;
+    const types = splitEvidenceTypes(r.evidence_type_final);
+    if (types.length === 0) {
+      acc.unknown = (acc.unknown || 0) + 1;
+    } else {
+      types.forEach((type) => {
+        acc[type] = (acc[type] || 0) + 1;
+      });
+    }
     return acc;
   }, {} as Record<string, number>);
 
@@ -648,6 +695,22 @@ export default function Step11Export() {
   }, {} as Record<string, number>);
 
   const domains = Object.keys(domainCounts).filter((d) => d !== 'unknown');
+  const filteredDomainTriggers = Object.entries(triggerStats.byDomain)
+    .map(([domain, triggers]) => {
+      const filtered = Object.entries(triggers).filter(([type]) => (TRIGGER_PRIORITY[type] || 4) <= 2);
+      if (filtered.length === 0) return null;
+      return { domain, triggers: filtered };
+    })
+    .filter((entry): entry is { domain: string; triggers: Array<[string, { total: number; success: number; evidenceTypes: Record<string, number> }]> } => entry !== null);
+  const transitionOrder = ['変化なし', '関心→意図', '意図→計画', '計画→実行', '実行→維持'];
+  const transitionEntries = Object.entries(aggregateStageChanges.transitionDistribution).sort((a, b) => {
+    const aIndex = transitionOrder.indexOf(a[0]);
+    const bIndex = transitionOrder.indexOf(b[0]);
+    if (aIndex === -1 && bIndex === -1) return a[0].localeCompare(b[0]);
+    if (aIndex === -1) return 1;
+    if (bIndex === -1) return -1;
+    return aIndex - bIndex;
+  });
 
   return (
     <div className="p-6">
@@ -698,22 +761,15 @@ export default function Step11Export() {
       {/* サマリータブ */}
       {activeTab === 'summary' && (
         <div className="space-y-6">
-          {/* ステージ変化（Δ） */}
+          {/* フェーズ遷移分布 */}
           <div className="bg-indigo-50 rounded-lg p-4">
-            <h3 className="font-medium mb-4">ステージ変化分布（Δ = max - first）</h3>
+            <h3 className="font-medium mb-4">フェーズ遷移分布</h3>
             <div className="space-y-2 text-sm">
-              {[
-                { key: '0', label: '+0段階（変化なし）' },
-                { key: '1', label: '+1段階' },
-                { key: '2', label: '+2段階' },
-                { key: '3+', label: '+3段階以上' },
-              ].map(({ key, label }) => {
-                const counts = aggregateStageChanges.deltaDistribution;
-                const count = counts[key] || 0;
-                const maxCount = Math.max(...Object.values(counts), 1);
+              {transitionEntries.map(([label, count]) => {
+                const maxCount = Math.max(...Object.values(aggregateStageChanges.transitionDistribution), 1);
                 const barWidth = Math.max((count / maxCount) * 100, 5);
                 return (
-                  <div key={key} className="flex items-center gap-3">
+                  <div key={label} className="flex items-center gap-3">
                     <span className="w-36 text-gray-600">{label}</span>
                     <div className="flex-1 bg-white rounded h-2 overflow-hidden">
                       <div className="bg-indigo-500 h-2" style={{ width: `${barWidth}%` }} />
@@ -722,13 +778,14 @@ export default function Step11Export() {
                   </div>
                 );
               })}
+              {Object.keys(aggregateStageChanges.transitionDistribution).length === 0 && (
+                <p className="text-gray-500 text-sm">ステージ情報が不足しているため集計できません</p>
+              )}
             </div>
             <div className="mt-4 pt-3 border-t text-sm text-gray-600">
               自己効力感【参考値】:{' '}
               {aggregateStageChanges.totalUsers > 0
-                ? `${aggregateStageChanges.selfEfficacyCount}/${aggregateStageChanges.totalUsers}人 (${Math.round(
-                    (aggregateStageChanges.selfEfficacyCount / aggregateStageChanges.totalUsers) * 100
-                  )}%) が自己効力感を獲得`
+                ? `${aggregateStageChanges.selfEfficacyCount}/${aggregateStageChanges.totalUsers}人 が自己効力感を獲得`
                 : '対象ユーザーがありません'}
             </div>
             <p className="text-xs text-gray-500 mt-1">※自己効力感はデータ取得が不完全なため参考値として扱います</p>
@@ -837,9 +894,9 @@ export default function Step11Export() {
             )}
           </div>
 
-          {/* 介入タイプ別成功率（全体集計） */}
+          {/* 介入タイプ別集計（全体集計） */}
           <div className="bg-green-50 rounded-lg p-4">
-            <h3 className="font-medium mb-4">介入タイプ別 成功率（スコープ内のみ）</h3>
+            <h3 className="font-medium mb-4">介入タイプ別 集計（スコープ内のみ）</h3>
             <p className="text-xs text-gray-500 mb-3">
               ※ P1（実行提案/根拠提示/リフレーミング）&gt; P2（行動継続後押し）&gt; P3 の優先度で最上位のみカウント
             </p>
@@ -847,15 +904,13 @@ export default function Step11Export() {
               {Object.entries(triggerStats.overall)
                 .sort((a, b) => (b[1].success / b[1].total || 0) - (a[1].success / a[1].total || 0))
                 .map(([type, stats]) => {
-                  const rate = stats.total > 0 ? Math.round((stats.success / stats.total) * 100) : 0;
                   const priority = TRIGGER_PRIORITY[type] || 4;
                   return (
                     <div key={type} className="text-sm">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-green-800">{type}</span>
                         <span className="text-xs text-gray-400">(P{priority})</span>
-                        <span>: {stats.total}回使用 -&gt; {stats.success}回成功</span>
-                        <span className="text-green-600 font-medium">({rate}%)</span>
+                        <span>: 使用 {stats.total}件・成功 {stats.success}件</span>
                       </div>
                       {Object.keys(stats.evidenceTypes).length > 0 && (
                         <div className="ml-4 text-gray-600">
@@ -876,18 +931,18 @@ export default function Step11Export() {
 
           {/* ドメイン別集計 */}
           <div className="bg-yellow-50 rounded-lg p-4">
-            <h3 className="font-medium mb-4">ドメイン別 介入成功率</h3>
-            {Object.keys(triggerStats.byDomain).length > 0 ? (
+            <h3 className="font-medium mb-4">ドメイン別 介入集計</h3>
+            {filteredDomainTriggers.length > 0 ? (
               <div className="space-y-4">
-                {Object.entries(triggerStats.byDomain).map(([domain, triggers]) => (
+                {filteredDomainTriggers.map(({ domain, triggers }) => (
                   <div key={domain}>
                     <h4 className="text-sm font-medium text-yellow-800 mb-2">- {domain}</h4>
                     <div className="pl-4 space-y-1">
-                      {Object.entries(triggers)
+                      {triggers
                         .sort((a, b) => b[1].success - a[1].success)
                         .map(([type, stats]) => (
                           <div key={type} className="text-sm text-gray-700">
-                            {type}: {stats.success}件成功
+                            {type}: 成功 {stats.success}件
                             {Object.keys(stats.evidenceTypes).length > 0 && (
                               <span className="text-gray-500">
                                 {' '}({Object.entries(stats.evidenceTypes).map(([t, c]) => `${t}:${c}`).join(', ')})
@@ -900,7 +955,7 @@ export default function Step11Export() {
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500 text-sm">スコープ内のリンクデータがありません</p>
+              <p className="text-gray-500 text-sm">P1/P2のトリガーが付与されたデータがありません</p>
             )}
           </div>
 
@@ -1158,31 +1213,24 @@ export default function Step11Export() {
 
               const userStage = userStageChanges.byUser[userId];
 
-              const evidenceTypesOrdered = userEvidence.map((e) => e.evidence_type_final || 'unknown');
-              const evidenceTypeCounts = evidenceTypesOrdered.reduce((acc, t) => {
-                acc[t] = (acc[t] || 0) + 1;
-                return acc;
-              }, {} as Record<string, number>);
-
-              const typeSequence: string[] = [];
-              evidenceTypesOrdered.forEach((t) => {
-                if (typeSequence[typeSequence.length - 1] !== t) typeSequence.push(t);
-              });
-              const sequenceText = typeSequence.filter((t) => t !== 'unknown').join(' → ');
-
               const userDomainTypeCounts = userEvidence.reduce((acc, e) => {
                 const domain = e.goal_domain_final || 'その他';
                 if (!acc[domain]) acc[domain] = {};
-                const type = e.evidence_type_final || 'unknown';
-                acc[domain][type] = (acc[domain][type] || 0) + 1;
+                const types = splitEvidenceTypes(e.evidence_type_final);
+                if (types.length === 0) {
+                  acc[domain].unknown = (acc[domain].unknown || 0) + 1;
+                } else {
+                  types.forEach((type) => {
+                    acc[domain][type] = (acc[domain][type] || 0) + 1;
+                  });
+                }
                 return acc;
               }, {} as Record<string, Record<string, number>>);
 
               const domainSummary = Object.entries(userDomainTypeCounts).map(([domain, counts]) => {
                 const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-                const total = Object.values(counts).reduce((sum, v) => sum + v, 0);
                 if (!top) return `${domain}: データ不足`;
-                return `${domain}: ${top[0]}が多め(${top[1]}/${total}件)`;
+                return `${domain}: ${top[0]}が多め(${top[1]}件)`;
               });
 
               const stageSummary =
@@ -1192,7 +1240,7 @@ export default function Step11Export() {
 
               const selfEfficacySummary =
                 userStage && userStage.selfEfficacyTotal > 0
-                  ? `${userStage.selfEfficacyAcquired ? '獲得あり ✓' : '獲得なし'} (${userStage.selfEfficacyHits}/${userStage.selfEfficacyTotal}件で発現)`
+                  ? `${userStage.selfEfficacyAcquired ? '獲得あり ✓' : '獲得なし'} ${userStage.selfEfficacyHits}件`
                   : 'データなし';
 
               const domainStageEntries = Object.entries(userStage?.domainChanges || {});
@@ -1239,27 +1287,14 @@ export default function Step11Export() {
                         {selfEfficacySummary}
                       </div>
                       <div>
-                        <span className="text-gray-500">全体の変化概要:</span>{' '}
-                        {userEvidence.length === 0
-                          ? 'データがないため判定できません'
-                          : sequenceText
-                            ? `観測された範囲では「${sequenceText}」の順で推移が見られます`
-                            : `未分類が多く、遷移は読み取りづらい状況です`}
-                      </div>
-                      <div>
                         <span className="text-gray-500">ドメイン別の変化:</span>{' '}
                         {domainSummary.length > 0 ? domainSummary.join(' / ') : '該当データなし'}
                       </div>
                       <div>
-                        <span className="text-gray-500">有効だった介入タイプの傾向:</span>{' '}
-                        {triggerTrend.length > 0 ? (
-                          triggerTrend.map(({ type, stats, rate }) => {
-                            if (rate === null) return `${type}（成功${stats.success}件・母数不足）`;
-                            return `${type}（成功率${Math.round(rate * 100)}%: ${stats.success}/${stats.total}件）`;
-                          }).join(' / ')
-                        ) : (
-                          'リンク済みの介入が少なく、傾向は判断できません'
-                        )}
+                        <span className="text-gray-500">関連が見られた介入タイプの傾向:</span>{' '}
+                        {triggerTrend.length > 0
+                          ? triggerTrend.map(({ type, stats }) => `${type}（成功${stats.success}件）`).join(' / ')
+                          : 'リンク済みの介入が少なく、傾向は判断できません'}
                       </div>
                     </div>
                   </div>
@@ -1454,7 +1489,7 @@ export default function Step11Export() {
                                     合計変化: {formatStage(timeline.firstStage)} → {formatStage(timeline.maxStage)} [{formatDelta(timeline.totalChange)}]
                                   </div>
                                   <div className="text-xs text-gray-500">
-                                    有効だった介入:{' '}
+                                    関連が見られた介入:{' '}
                                     {timeline.effectiveTriggers.length > 0 ? timeline.effectiveTriggers.join(', ') : '該当なし'}
                                   </div>
                                 </div>
@@ -1468,9 +1503,9 @@ export default function Step11Export() {
                     )}
                   </div>
 
-                  {/* 有効だった介入 */}
+                  {/* 関連が見られた介入 */}
                   <div className="bg-purple-50 rounded p-3">
-                    <h4 className="text-sm font-medium text-purple-700 mb-2">有効だった介入</h4>
+                    <h4 className="text-sm font-medium text-purple-700 mb-2">関連が見られた介入</h4>
                     <div className="text-sm">
                       {Object.entries(userData.triggers).map(([type, stats]) => {
                         const p = TRIGGER_PRIORITY[type] || 4;
