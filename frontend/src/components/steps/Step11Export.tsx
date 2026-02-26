@@ -306,7 +306,7 @@ export default function Step11Export() {
       const sorted = [...records].sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
       const stageRecords = sorted.filter((r) => getStageScores(r.evidence_type_final).length > 0);
 
-      const firstStage = stageRecords.length > 0 ? getMaxStageScore(stageRecords[0].evidence_type_final) : undefined;
+      const firstStage = stageRecords.length > 0 ? getStageScores(stageRecords[0].evidence_type_final)[0] : undefined;
       let maxStage = firstStage;
       stageRecords.forEach((r) => {
         const score = getMaxStageScore(r.evidence_type_final);
