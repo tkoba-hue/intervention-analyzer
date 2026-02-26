@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useProjectStore, ChatRecord } from '@/store/projectStore';
+import { importAnalyzedCsv } from '@/lib/analyzedCsvImport';
 
 type MappingType = {
   id: string;
@@ -87,6 +88,8 @@ export default function Home() {
   });
   const [step, setStep] = useState<'upload' | 'mapping' | 'preview'>('upload');
   const [autoDetected, setAutoDetected] = useState<string[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -214,6 +217,36 @@ export default function Home() {
     router.push(`/project/${projectId}/step/1`);
   };
 
+  const handleImportClick = () => {
+    if (importLoading) return;
+    importInputRef.current?.click();
+  };
+
+  const handleImportChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) return;
+
+    setImportLoading(true);
+
+    try {
+      const result = await importAnalyzedCsv(selectedFile);
+      const projectId = `project_${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
+      const projectName = selectedFile.name.replace(/\.[^.]+$/, '') || '新規プロジェクト';
+
+      reset();
+      setProject(projectId, projectName);
+      setData(result.records);
+
+      router.push(`/project/${projectId}/step/11`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'CSVの読み込みに失敗しました';
+      window.alert(`インポートエラー: ${message}`);
+    } finally {
+      setImportLoading(false);
+      event.target.value = '';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-4xl mx-auto">
@@ -223,65 +256,98 @@ export default function Home() {
         <p className="text-xs text-gray-400 text-center mb-6">v3.2</p>
 
         {step === 'upload' && (
-          <div className="bg-white rounded-lg shadow p-8">
-            <h2 className="text-xl font-bold mb-4">データをアップロード</h2>
-            <p className="text-gray-600 mb-6">
-              CSV または Excel ファイルをアップロードしてください。
-            </p>
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow p-8">
+              <h2 className="text-xl font-bold mb-4">新規分析を開始</h2>
+              <p className="text-gray-600 mb-6">
+                CSV または Excel ファイルをアップロードしてください。
+              </p>
 
-            {!file ? (
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <input
-                  type="file"
-                  accept=".csv,.xlsx,.xls"
-                  onChange={handleFileChange}
-                  className="hidden"
-                  id="file-upload"
-                />
-                <label
-                  htmlFor="file-upload"
-                  className="cursor-pointer text-blue-500 hover:text-blue-600"
-                >
-                  ファイルを選択
-                </label>
-                <p className="text-gray-400 mt-2">
-                  または、ここにドラッグ＆ドロップ
-                </p>
-              </div>
-            ) : (
-              <div className="border-2 border-green-300 bg-green-50 rounded-lg p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <p className="text-sm text-gray-500">選択済み</p>
-                    <p className="text-lg font-medium text-gray-800">{file.name}</p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      {rawData.length} 件のデータ / {headers.length} カラム
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-4">
-                  <label
-                    htmlFor="file-upload-change"
-                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded cursor-pointer hover:bg-gray-300"
-                  >
-                    別のファイルを選択
-                  </label>
+              {!file ? (
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
                   <input
                     type="file"
                     accept=".csv,.xlsx,.xls"
                     onChange={handleFileChange}
                     className="hidden"
-                    id="file-upload-change"
+                    id="file-upload"
                   />
-                  <button
-                    onClick={handleProceedToMapping}
-                    className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  <label
+                    htmlFor="file-upload"
+                    className="cursor-pointer text-blue-500 hover:text-blue-600"
                   >
-                    次へ
-                  </button>
+                    ファイルを選択
+                  </label>
+                  <p className="text-gray-400 mt-2">
+                    または、ここにドラッグ＆ドロップ
+                  </p>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="border-2 border-green-300 bg-green-50 rounded-lg p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="text-sm text-gray-500">選択済み</p>
+                      <p className="text-lg font-medium text-gray-800">{file.name}</p>
+                      <p className="text-sm text-gray-500 mt-1">
+                        {rawData.length} 件のデータ / {headers.length} カラム
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-4">
+                    <label
+                      htmlFor="file-upload-change"
+                      className="px-4 py-2 bg-gray-200 text-gray-700 rounded cursor-pointer hover:bg-gray-300"
+                    >
+                      別のファイルを選択
+                    </label>
+                    <input
+                      type="file"
+                      accept=".csv,.xlsx,.xls"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      id="file-upload-change"
+                    />
+                    <button
+                      onClick={handleProceedToMapping}
+                      className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    >
+                      次へ
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="h-px flex-1 bg-gray-200" />
+              <span className="text-sm text-gray-400">または</span>
+              <div className="h-px flex-1 bg-gray-200" />
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-8">
+              <h2 className="text-xl font-bold mb-2">分析済みCSVをインポート</h2>
+              <p className="text-gray-600 mb-6">
+                すでに分析が完了したCSVをインポートして結果を確認
+              </p>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".csv"
+                onChange={handleImportChange}
+                className="hidden"
+              />
+              <button
+                onClick={handleImportClick}
+                disabled={importLoading}
+                className={`px-6 py-2 rounded text-white ${
+                  importLoading
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-blue-500 hover:bg-blue-600'
+                }`}
+              >
+                {importLoading ? 'インポート中...' : '分析済みCSVをインポート'}
+              </button>
+            </div>
           </div>
         )}
 
