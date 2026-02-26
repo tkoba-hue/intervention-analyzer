@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useProjectStore, ChatRecord } from '@/store/projectStore';
+import { useProjectStore } from '@/store/projectStore';
 
 const STEP_ID = '11' as const;
 
@@ -52,9 +52,11 @@ function getHighestPriorityTrigger(triggers: string[]): string | null {
 }
 
 export default function Step11Export() {
-  const { data, projectName, steps } = useProjectStore();
+  const { data, projectName } = useProjectStore();
   const [activeTab, setActiveTab] = useState<'summary' | 'patterns' | 'timeline' | 'users' | 'log'>('summary');
   const [expandedTimelineTexts, setExpandedTimelineTexts] = useState<Set<string>>(new Set());
+  const [expandedTriggerDetails, setExpandedTriggerDetails] = useState<Set<string>>(new Set());
+  const [timelineUserFilter, setTimelineUserFilter] = useState<string>('all');
 
   // スコープ内のエビデンス
   const inScopeRecords = data.filter((r) => r.evidence_confirm === 1 && r.scope_final === 'in_scope');
@@ -109,6 +111,16 @@ export default function Step11Export() {
           if (!overall[topTrigger]) overall[topTrigger] = { total: 0, success: 0, evidenceTypes: {} };
           overall[topTrigger].total++;
         }
+
+        if (r.user_id) {
+          if (!byUser[r.user_id]) byUser[r.user_id] = { triggers: {}, domains: {} };
+          if (topTrigger) {
+            if (!byUser[r.user_id].triggers[topTrigger]) {
+              byUser[r.user_id].triggers[topTrigger] = { total: 0, success: 0, evidenceTypes: {} };
+            }
+            byUser[r.user_id].triggers[topTrigger].total++;
+          }
+        }
       });
 
     // スコープ内にリンクされたペアから成功をカウント
@@ -153,10 +165,15 @@ export default function Step11Export() {
 
   // 週別エビデンス数＋トリガー数
   const weeklyStats = useMemo(() => {
-    const allRecords = data.filter((r) => !r.exclude_flag);
-    if (allRecords.length === 0) return { weeks: [], domainWeekly: {}, triggerWeekly: {} };
+    const sourceRecords = data.filter((r) => !r.exclude_flag);
+    const filteredRecords =
+      timelineUserFilter === 'all'
+        ? sourceRecords
+        : sourceRecords.filter((r) => r.user_id === timelineUserFilter);
 
-    const sortedRecords = [...allRecords].sort(
+    if (filteredRecords.length === 0) return { weeks: [], domainWeekly: {}, triggerWeekly: {} };
+
+    const sortedRecords = [...filteredRecords].sort(
       (a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime()
     );
     const firstDate = sortedRecords[0]?.datetime;
@@ -200,6 +217,14 @@ export default function Step11Export() {
       domainWeekly,
       triggerWeekly,
     };
+  }, [data, timelineUserFilter]);
+
+  const timelineUserIds = useMemo(() => {
+    const ids = new Set<string>();
+    data.forEach((r) => {
+      if (r.user_id) ids.add(r.user_id);
+    });
+    return Array.from(ids).sort();
   }, [data]);
 
   // 工程ログ（新フェーズ式）
@@ -590,6 +615,25 @@ export default function Step11Export() {
       {/* 時系列分析タブ */}
       {activeTab === 'timeline' && (
         <div className="space-y-6">
+          <div className="bg-white border rounded-lg p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <label className="text-sm font-medium text-gray-600">ユーザーIDで絞り込み</label>
+              <select
+                className="border rounded px-3 py-2 text-sm w-full sm:w-64"
+                value={timelineUserFilter}
+                onChange={(e) => setTimelineUserFilter(e.target.value)}
+              >
+                <option value="all">全ユーザー</option>
+                {timelineUserIds.map((id) => (
+                  <option key={id} value={id}>{id}</option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              選択したユーザーの発話のみで週次集計を再計算します
+            </p>
+          </div>
+
           {/* 週別エビデンス・トリガー数 */}
           <div className="bg-gray-50 rounded-lg p-4">
             <h3 className="font-medium mb-4">週別 エビデンス / トリガー 発生数</h3>
@@ -627,7 +671,7 @@ export default function Step11Export() {
               );
             })}
             {weeklyStats.weeks.length === 0 && (
-              <p className="text-gray-500 text-sm">データがありません</p>
+              <p className="text-gray-500 text-sm">該当するデータがありません</p>
             )}
           </div>
 
@@ -716,11 +760,86 @@ export default function Step11Export() {
                 .filter((r) => r.user_id === userId)
                 .sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
 
+              const evidenceTypesOrdered = userEvidence.map((e) => e.evidence_type_final || 'unknown');
+              const evidenceTypeCounts = evidenceTypesOrdered.reduce((acc, t) => {
+                acc[t] = (acc[t] || 0) + 1;
+                return acc;
+              }, {} as Record<string, number>);
+
+              const typeSequence: string[] = [];
+              evidenceTypesOrdered.forEach((t) => {
+                if (typeSequence[typeSequence.length - 1] !== t) typeSequence.push(t);
+              });
+              const sequenceText = typeSequence.filter((t) => t !== 'unknown').join(' → ');
+
+              const userDomainTypeCounts = userEvidence.reduce((acc, e) => {
+                const domain = e.goal_domain_final || 'その他';
+                if (!acc[domain]) acc[domain] = {};
+                const type = e.evidence_type_final || 'unknown';
+                acc[domain][type] = (acc[domain][type] || 0) + 1;
+                return acc;
+              }, {} as Record<string, Record<string, number>>);
+
+              const domainSummary = Object.entries(userDomainTypeCounts).map(([domain, counts]) => {
+                const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+                const total = Object.values(counts).reduce((sum, v) => sum + v, 0);
+                if (!top) return `${domain}: データ不足`;
+                return `${domain}: ${top[0]}が多め(${top[1]}/${total}件)`;
+              });
+
+              const triggerTrend = Object.entries(userData.triggers)
+                .map(([type, stats]) => {
+                  const rate = stats.total > 0 ? stats.success / stats.total : null;
+                  return { type, stats, rate };
+                })
+                .sort((a, b) => {
+                  const rateDiff = (b.rate ?? -1) - (a.rate ?? -1);
+                  if (rateDiff !== 0) return rateDiff;
+                  return b.stats.success - a.stats.success;
+                })
+                .slice(0, 3);
+
               return (
                 <div key={userId} className="bg-white border rounded-lg p-4">
                   <h3 className="font-bold text-lg mb-4 text-purple-800">
                     ユーザー: {userId}
                   </h3>
+
+                  {/* 分析サマリー */}
+                  <div className="bg-purple-50 rounded p-3 mb-4">
+                    <h4 className="text-sm font-medium text-purple-700 mb-2">分析サマリー（観測できた範囲）</h4>
+                    <div className="text-sm text-gray-700 space-y-1">
+                      <div>
+                        <span className="text-gray-500">分析期間:</span>{' '}
+                        {userEvidence.length > 0
+                          ? `${userEvidence[0].datetime.slice(0, 10)} 〜 ${userEvidence[userEvidence.length - 1].datetime.slice(0, 10)}`
+                          : '該当データなし'}
+                      </div>
+                      <div>
+                        <span className="text-gray-500">全体の変化概要:</span>{' '}
+                        {userEvidence.length === 0
+                          ? 'データがないため判定できません'
+                          : sequenceText
+                            ? `観測された範囲では「${sequenceText}」の順で推移が見られます`
+                            : `未分類が多く、遷移は読み取りづらい状況です`}
+                      </div>
+                      <div>
+                        <span className="text-gray-500">ドメイン別の変化:</span>{' '}
+                        {domainSummary.length > 0 ? domainSummary.join(' / ') : '該当データなし'}
+                      </div>
+                      <div>
+                        <span className="text-gray-500">有効だった介入タイプの傾向:</span>{' '}
+                        {triggerTrend.length > 0 ? (
+                          triggerTrend.map(({ type, stats, rate }) => {
+                            if (rate === null) return `${type}（成功${stats.success}件・母数不足）`;
+                            return `${type}（成功率${Math.round(rate * 100)}%: ${stats.success}/${stats.total}件）`;
+                          }).join(' / ')
+                        ) : (
+                          'リンク済みの介入が少なく、傾向は判断できません'
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
                   {/* ドメイン */}
                   <div className="mb-4">
@@ -737,6 +856,7 @@ export default function Step11Export() {
                       {userEvidence.map((evidence) => {
                         const linkedTrigger = data.find((r) => r.id === evidence.linked_prev_id);
                         const topTrigger = linkedTrigger ? getHighestPriorityTrigger(linkedTrigger.trigger_type_final) : null;
+                        const triggerExpanded = expandedTriggerDetails.has(evidence.id);
 
                         return (
                           <div key={evidence.id} className="text-sm">
@@ -771,6 +891,33 @@ export default function Step11Export() {
                               <span className="text-xs text-gray-400 ml-1">
                                 &lt;- {topTrigger}
                               </span>
+                            )}
+                            {linkedTrigger && (
+                              <div className="ml-4 mt-1">
+                                <button
+                                  className="text-xs text-blue-600 hover:underline"
+                                  onClick={() => {
+                                    const newSet = new Set(expandedTriggerDetails);
+                                    newSet.has(evidence.id) ? newSet.delete(evidence.id) : newSet.add(evidence.id);
+                                    setExpandedTriggerDetails(newSet);
+                                  }}
+                                >
+                                  {triggerExpanded ? '−' : '+'} 介入側の発話を{triggerExpanded ? '非表示' : '表示'}
+                                </button>
+                                {triggerExpanded && (
+                                  <div className="mt-2 bg-blue-50 p-2 rounded">
+                                    <div className="text-xs text-blue-600 mb-1">
+                                      介入側 #{linkedTrigger.id}
+                                    </div>
+                                    <div className="text-xs text-gray-500 mb-1">
+                                      {linkedTrigger.trigger_type_final?.length
+                                        ? linkedTrigger.trigger_type_final.join(' / ')
+                                        : 'トリガー未分類'}
+                                    </div>
+                                    <div className="text-sm text-gray-800">{linkedTrigger.text_raw}</div>
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
                         );

@@ -65,3 +65,14 @@ cd backend && uvicorn main:app --reload  # localhost:8000
 - `v1.0-linear-workflow`: 旧版
 - `v2.0-phase-workflow`: 分岐ワークフロー
 - 現在: v3 線形ワークフロー（Trigger先行）
+
+## 関連プロジェクト
+
+| プロジェクト | パス | 役割 |
+|-------------|------|------|
+| **intervention-learning-loop** | `/home/dev/intervention-learning-loop` | 評価・学習ループ（上位プロジェクト） |
+
+本プロジェクトで抽出したTrigger/Evidenceの修正ログは、intervention-learning-loopに送信され、
+AIチャットボット改善のための学習データとして活用される。
+
+詳細: `/home/dev/intervention-learning-loop/CLAUDE.md`
