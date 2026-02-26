@@ -1,9 +1,194 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { useProjectStore } from '@/store/projectStore';
 
 const STEP_ID = '11' as const;
+const CSV_BOM = '\uFEFF';
+
+type CsvRow = Record<string, string>;
+
+const FULL_DATA_COLUMNS = [
+  'id',
+  'datetime',
+  'speaker',
+  'user_id',
+  'text_raw',
+  'exclude_flag',
+  'evidence_anchor',
+  'evidence_confirm',
+  'evidence_type_final',
+  'scope_final',
+  'goal_domain_final',
+  'linked_prev_id',
+  'trigger_excluded',
+  'trigger_type_final',
+];
+
+const EVIDENCE_ONLY_COLUMNS = [
+  'id',
+  'datetime',
+  'text_raw',
+  'evidence_type_final',
+  'scope_final',
+  'goal_domain_final',
+];
+
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+    } else if (char === ',') {
+      row.push(field);
+      field = '';
+    } else if (char === '\n') {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+    } else if (char === '\r') {
+      if (text[i + 1] === '\n') {
+        i += 1;
+      }
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += char;
+    }
+  }
+
+  row.push(field);
+  rows.push(row);
+
+  while (rows.length > 0 && rows[rows.length - 1].every((cell) => cell.trim() === '')) {
+    rows.pop();
+  }
+
+  return rows;
+}
+
+function normalizeHeaders(headers: string[]): string[] {
+  if (headers.length === 0) return headers;
+  const normalized = [...headers];
+  normalized[0] = normalized[0]?.replace(CSV_BOM, '');
+  return normalized.map((h) => h.trim());
+}
+
+function toBool(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+}
+
+function toNumber(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function toList(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(';')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function csvRowsToObjects(headers: string[], rows: string[][]): CsvRow[] {
+  const indexMap = new Map<string, number>();
+  headers.forEach((header, idx) => {
+    indexMap.set(header, idx);
+  });
+
+  return rows.map((row) => {
+    const obj: CsvRow = {};
+    headers.forEach((header, idx) => {
+      obj[header] = row[idx] ?? '';
+    });
+    return obj;
+  });
+}
+
+function getCsvValue(row: CsvRow, key: string): string {
+  return row[key] ?? '';
+}
+
+function escapeCsvField(value: string): string {
+  const escaped = value.replace(/"/g, '""');
+  return /[",\n\r]/.test(escaped) ? `"${escaped}"` : escaped;
+}
+
+function parseSpeaker(value: string | undefined): 'participant' | 'other' {
+  return value === 'other' ? 'other' : 'participant';
+}
+
+function buildBaseRecord(
+  row: CsvRow,
+  overrides: Partial<import('@/store/projectStore').ChatRecord> = {}
+): import('@/store/projectStore').ChatRecord {
+  const id = getCsvValue(row, 'id').trim();
+  const datetime = getCsvValue(row, 'datetime').trim();
+  const textRaw = getCsvValue(row, 'text_raw');
+
+  return {
+    id,
+    user_id: getCsvValue(row, 'user_id').trim() || undefined,
+    datetime,
+    speaker: parseSpeaker(getCsvValue(row, 'speaker').trim()),
+    text_raw: textRaw,
+    text_norm: undefined,
+    exclude_flag: toBool(getCsvValue(row, 'exclude_flag')),
+    exclude_reason: undefined,
+    evidence_anchor: toNumber(getCsvValue(row, 'evidence_anchor')) ?? 0,
+    evidence_anchor_confidence: toNumber(getCsvValue(row, 'evidence_anchor_confidence')) ?? 0,
+    evidence_anchor_patterns: undefined,
+    evidence_confirm: toNumber(getCsvValue(row, 'evidence_confirm')),
+    evidence_reason_if0: undefined,
+    evidence_flag_strict: toBool(getCsvValue(row, 'evidence_flag_strict')),
+    evidence_type_auto: undefined,
+    evidence_type_confidence: toNumber(getCsvValue(row, 'evidence_type_confidence')),
+    evidence_type_final: getCsvValue(row, 'evidence_type_final').trim() || undefined,
+    scope_auto: undefined,
+    scope_override: undefined,
+    scope_final: getCsvValue(row, 'scope_final').trim() || undefined,
+    trigger_excluded: toBool(getCsvValue(row, 'trigger_excluded')),
+    trigger_type_auto: toList(getCsvValue(row, 'trigger_type_auto')),
+    trigger_type_override: undefined,
+    trigger_type_final: toList(getCsvValue(row, 'trigger_type_final')),
+    trigger_type_confidence: toNumber(getCsvValue(row, 'trigger_type_confidence')),
+    linked_prev_id: getCsvValue(row, 'linked_prev_id').trim() || undefined,
+    linked_other_ids: toList(getCsvValue(row, 'linked_other_ids')),
+    goal_domain_auto: undefined,
+    goal_domain_final: getCsvValue(row, 'goal_domain_final').trim() || undefined,
+    ...overrides,
+  };
+}
 
 // 日付をWeek番号に変換
 function getWeekNumber(dateStr: string): number {
@@ -52,11 +237,12 @@ function getHighestPriorityTrigger(triggers: string[]): string | null {
 }
 
 export default function Step11Export() {
-  const { data, projectName } = useProjectStore();
+  const { data, projectName, setData } = useProjectStore();
   const [activeTab, setActiveTab] = useState<'summary' | 'patterns' | 'timeline' | 'users' | 'log'>('summary');
   const [expandedTimelineTexts, setExpandedTimelineTexts] = useState<Set<string>>(new Set());
   const [expandedTriggerDetails, setExpandedTriggerDetails] = useState<Set<string>>(new Set());
   const [timelineUserFilter, setTimelineUserFilter] = useState<string>('all');
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   // スコープ内のエビデンス
   const inScopeRecords = data.filter((r) => r.evidence_confirm === 1 && r.scope_final === 'in_scope');
@@ -276,13 +462,15 @@ export default function Step11Export() {
         record.id,
         record.datetime,
         record.speaker,
-        `"${record.text_raw.replace(/"/g, '""')}"`,
+        record.text_raw,
         record.evidence_type_final || '',
         record.scope_final || '',
         record.goal_domain_final || '',
         record.linked_prev_id || '',
         linkedRecord?.trigger_type_final.join(';') || '',
-      ].join(',');
+      ]
+        .map((value) => escapeCsvField(String(value)))
+        .join(',');
     });
 
     const csv = [headers.join(','), ...rows].join('\n');
@@ -293,6 +481,153 @@ export default function Step11Export() {
     link.download = `${projectName || 'analysis'}_result.csv`;
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportFullCSV = () => {
+    const headers = [...FULL_DATA_COLUMNS];
+
+    const rows = data.map((record) => {
+      return [
+        record.id,
+        record.datetime,
+        record.speaker,
+        record.user_id || '',
+        record.text_raw,
+        record.exclude_flag ? '1' : '0',
+        String(record.evidence_anchor ?? 0),
+        record.evidence_confirm !== undefined ? String(record.evidence_confirm) : '',
+        record.evidence_type_final || '',
+        record.scope_final || '',
+        record.goal_domain_final || '',
+        record.linked_prev_id || '',
+        record.trigger_excluded ? '1' : '0',
+        record.trigger_type_final?.join(';') || '',
+      ]
+        .map((value) => escapeCsvField(String(value)))
+        .join(',');
+    });
+
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([CSV_BOM + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${projectName || 'analysis'}_full.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportClick = () => {
+    importInputRef.current?.click();
+  };
+
+  const handleImportCSV = async (file: File) => {
+    const rawText = await file.text();
+    const text = rawText.startsWith(CSV_BOM) ? rawText.slice(1) : rawText;
+    const parsed = parseCSV(text);
+    if (parsed.length === 0) throw new Error('CSVが空です');
+
+    const headers = normalizeHeaders(parsed[0]);
+    const rows = parsed.slice(1);
+
+    const hasTriggerTypeFinal = headers.includes('trigger_type_final');
+    const hasEvidenceTypeFinal = headers.includes('evidence_type_final');
+
+    if (!hasEvidenceTypeFinal) {
+      throw new Error('evidence_type_final 列が見つかりません');
+    }
+
+    if (hasTriggerTypeFinal) {
+      const missing = FULL_DATA_COLUMNS.filter((col) => !headers.includes(col));
+      if (missing.length > 0) {
+        throw new Error(`必須カラムが不足しています: ${missing.join(', ')}`);
+      }
+    } else {
+      const missing = EVIDENCE_ONLY_COLUMNS.filter((col) => !headers.includes(col));
+      if (missing.length > 0) {
+        throw new Error(`必須カラムが不足しています: ${missing.join(', ')}`);
+      }
+    }
+
+    const rowObjects = csvRowsToObjects(headers, rows)
+      .filter((row) => Object.values(row).some((value) => value.trim() !== ''));
+
+    if (rowObjects.length === 0) {
+      throw new Error('CSVにデータ行がありません');
+    }
+
+    if (hasTriggerTypeFinal) {
+      const records = rowObjects.map((row) =>
+        buildBaseRecord(row, {
+          speaker: parseSpeaker(getCsvValue(row, 'speaker').trim()),
+          text_raw: getCsvValue(row, 'text_raw'),
+        })
+      );
+      setData(records);
+      return { mode: 'full', count: records.length };
+    }
+
+    const records = rowObjects.map((row) =>
+      buildBaseRecord(row, {
+        speaker: 'participant',
+        user_id: getCsvValue(row, 'user_id').trim() || undefined,
+        exclude_flag: false,
+        evidence_anchor: 1,
+        evidence_anchor_confidence: 1,
+        evidence_confirm: 1,
+        evidence_flag_strict: false,
+        trigger_excluded: false,
+        trigger_type_auto: [],
+        trigger_type_final: [],
+        linked_other_ids: [],
+      })
+    );
+
+    const recordMap = new Map(records.map((record) => [record.id, record]));
+    const triggerTypeByLink = new Map<string, string[]>();
+
+    rowObjects.forEach((row) => {
+      const linkedId = getCsvValue(row, 'linked_prev_id').trim();
+      const linkedTypes = toList(getCsvValue(row, 'linked_trigger_type'));
+      if (linkedId && linkedTypes.length > 0) {
+        triggerTypeByLink.set(linkedId, linkedTypes);
+      }
+    });
+
+    records.forEach((record) => {
+      if (!record.linked_prev_id) return;
+      const target = recordMap.get(record.linked_prev_id);
+      if (!target) {
+        record.linked_prev_id = undefined;
+        return;
+      }
+      target.speaker = 'other';
+      const linkedTypes = triggerTypeByLink.get(target.id);
+      if (linkedTypes && target.trigger_type_final.length === 0) {
+        target.trigger_type_final = linkedTypes;
+      }
+    });
+
+    setData(records);
+    return { mode: 'evidence', count: records.length };
+  };
+
+  const handleImportChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const result = await handleImportCSV(file);
+      window.alert(
+        result.mode === 'full'
+          ? `フルデータCSVをインポートしました（${result.count}件）`
+          : `エビデンスCSVをインポートしました（${result.count}件）`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'CSVの読み込みに失敗しました';
+      window.alert(`インポートエラー: ${message}`);
+    } finally {
+      event.target.value = '';
+    }
   };
 
   const handleExportJSON = () => {
@@ -350,6 +685,22 @@ export default function Step11Export() {
       <p className="text-gray-600 mb-6">
         分析結果のレポートとエクスポート
       </p>
+
+      <div className="flex items-center gap-3 mb-6">
+        <button
+          onClick={handleImportClick}
+          className="px-4 py-2 rounded border border-gray-300 text-gray-600 text-sm hover:bg-gray-50"
+        >
+          分析済みCSVをインポート
+        </button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={handleImportChange}
+        />
+      </div>
 
       {/* タブ */}
       <div className="flex border-b mb-6 flex-wrap">
@@ -521,6 +872,12 @@ export default function Step11Export() {
               className="px-6 py-3 rounded-lg font-medium bg-green-500 hover:bg-green-600 text-white"
             >
               CSV でダウンロード
+            </button>
+            <button
+              onClick={handleExportFullCSV}
+              className="px-6 py-3 rounded-lg font-medium bg-gray-600 hover:bg-gray-700 text-white"
+            >
+              フルデータCSVでダウンロード
             </button>
             <button
               onClick={handleExportJSON}
