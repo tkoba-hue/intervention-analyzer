@@ -20,6 +20,15 @@ const COLUMN_ALIASES: Record<string, string | null> = {
   text_norm: null,
 };
 
+// 最低限必須のカラム（これだけあればインポート可能）
+const REQUIRED_COLUMNS = [
+  'id',
+  'datetime',
+  'speaker',
+  'text_raw',
+];
+
+// フルデータ形式で出力されるカラム（エクスポート用）
 const FULL_DATA_COLUMNS = [
   'id',
   'datetime',
@@ -247,20 +256,10 @@ async function importAnalyzedCsv(file: File): Promise<{ records: ChatRecord[]; m
   const hasTriggerTypeFinal = effectiveHeaderSet.has('trigger_type_final');
   const hasEvidenceTypeFinal = effectiveHeaderSet.has('evidence_type_final');
 
-  if (!hasEvidenceTypeFinal) {
-    throw new Error('evidence_type_final 列が見つかりません');
-  }
-
-  if (hasTriggerTypeFinal) {
-    const missing = FULL_DATA_COLUMNS.filter((col) => !effectiveHeaderSet.has(col));
-    if (missing.length > 0) {
-      throw new Error(`必須カラムが不足しています: ${missing.join(', ')}`);
-    }
-  } else {
-    const missing = EVIDENCE_ONLY_COLUMNS.filter((col) => !effectiveHeaderSet.has(col));
-    if (missing.length > 0) {
-      throw new Error(`必須カラムが不足しています: ${missing.join(', ')}`);
-    }
+  // 最低限必須のカラムのみチェック（evidence_type_final は必須から外す）
+  const missing = REQUIRED_COLUMNS.filter((col) => !effectiveHeaderSet.has(col));
+  if (missing.length > 0) {
+    throw new Error(`必須カラムが不足しています: ${missing.join(', ')}`);
   }
 
   const rowObjects = csvRowsToObjects(headers, rows)
