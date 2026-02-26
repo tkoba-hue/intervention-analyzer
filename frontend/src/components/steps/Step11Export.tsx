@@ -9,6 +9,20 @@ const CSV_BOM = '\uFEFF';
 
 type CsvRow = Record<string, string>;
 
+const COLUMN_ALIASES: Record<string, string | null> = {
+  record_id_global: 'id',
+  record_id_in_participant: null,
+  participant_id: 'user_id',
+  timestamp: 'datetime',
+  datetime_jst: 'datetime',
+  datetime_jst_naive: 'datetime',
+  evidence_flag: 'evidence_confirm',
+  evidence_flag_strict: 'evidence_confirm',
+  evidence_type: 'evidence_type_final',
+  trigger_type: 'trigger_type_final',
+  text_norm: null,
+};
+
 const FULL_DATA_COLUMNS = [
   'id',
   'datetime',
@@ -137,6 +151,40 @@ function csvRowsToObjects(headers: string[], rows: string[][]): CsvRow[] {
 
 function getCsvValue(row: CsvRow, key: string): string {
   return row[key] ?? '';
+}
+
+function pickPreferredValue(row: CsvRow, keys: string[]): string {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== undefined && value.trim() !== '') return value;
+  }
+  return '';
+}
+
+function applyColumnAliases(row: CsvRow): CsvRow {
+  const mapped: CsvRow = { ...row };
+
+  Object.entries(COLUMN_ALIASES).forEach(([from, to]) => {
+    if (!to) return;
+    if (!mapped[to] || mapped[to].trim() === '') {
+      const value = row[from];
+      if (value !== undefined) mapped[to] = value;
+    }
+  });
+
+  const datetimeValue =
+    pickPreferredValue(row, ['timestamp', 'datetime_jst', 'datetime_jst_naive', 'datetime']) ||
+    mapped.datetime ||
+    '';
+  if (datetimeValue) mapped.datetime = datetimeValue;
+
+  const evidenceConfirmValue =
+    pickPreferredValue(row, ['evidence_flag', 'evidence_flag_strict', 'evidence_confirm']) ||
+    mapped.evidence_confirm ||
+    '';
+  if (evidenceConfirmValue) mapped.evidence_confirm = evidenceConfirmValue;
+
+  return mapped;
 }
 
 function escapeCsvField(value: string): string {
@@ -530,26 +578,35 @@ export default function Step11Export() {
     const headers = normalizeHeaders(parsed[0]);
     const rows = parsed.slice(1);
 
-    const hasTriggerTypeFinal = headers.includes('trigger_type_final');
-    const hasEvidenceTypeFinal = headers.includes('evidence_type_final');
+    const effectiveHeaders = headers
+      .map((header) => {
+        const alias = COLUMN_ALIASES[header];
+        return alias === undefined ? header : alias;
+      })
+      .filter((header): header is string => Boolean(header));
+    const effectiveHeaderSet = new Set(effectiveHeaders);
+
+    const hasTriggerTypeFinal = effectiveHeaderSet.has('trigger_type_final');
+    const hasEvidenceTypeFinal = effectiveHeaderSet.has('evidence_type_final');
 
     if (!hasEvidenceTypeFinal) {
       throw new Error('evidence_type_final 列が見つかりません');
     }
 
     if (hasTriggerTypeFinal) {
-      const missing = FULL_DATA_COLUMNS.filter((col) => !headers.includes(col));
+      const missing = FULL_DATA_COLUMNS.filter((col) => !effectiveHeaderSet.has(col));
       if (missing.length > 0) {
         throw new Error(`必須カラムが不足しています: ${missing.join(', ')}`);
       }
     } else {
-      const missing = EVIDENCE_ONLY_COLUMNS.filter((col) => !headers.includes(col));
+      const missing = EVIDENCE_ONLY_COLUMNS.filter((col) => !effectiveHeaderSet.has(col));
       if (missing.length > 0) {
         throw new Error(`必須カラムが不足しています: ${missing.join(', ')}`);
       }
     }
 
     const rowObjects = csvRowsToObjects(headers, rows)
+      .map((row) => applyColumnAliases(row))
       .filter((row) => Object.values(row).some((value) => value.trim() !== ''));
 
     if (rowObjects.length === 0) {
