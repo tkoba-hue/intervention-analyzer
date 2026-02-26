@@ -220,6 +220,7 @@ function buildBaseRecord(row: CsvRow, overrides: Partial<ChatRecord> = {}): Chat
     evidence_type_auto: undefined,
     evidence_type_confidence: toNumber(getCsvValue(row, 'evidence_type_confidence')),
     evidence_type_final: getCsvValue(row, 'evidence_type_final').trim() || undefined,
+    self_efficacy_final: toNumber(getCsvValue(row, 'self_efficacy_final')),
     scope_auto: undefined,
     scope_override: undefined,
     scope_final: getCsvValue(row, 'scope_final').trim() || undefined,

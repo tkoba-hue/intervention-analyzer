@@ -39,6 +39,19 @@ const TRIGGER_PRIORITY: Record<string, number> = {
   '運用案内': 3,
 };
 
+const STAGE_SCORES: Record<string, number> = {
+  'awareness': 1, 'status_update': 1,
+  'intention': 2,
+  'plan': 3,
+  'action_report': 4,
+  'continuation': 5,
+  'outcome_report': 6,
+};
+
+const STAGE_NAMES: Record<number, string> = {
+  1: '気づき', 2: '意図', 3: '計画', 4: '実行', 5: '継続', 6: '成果',
+};
+
 // 最高優先度のトリガータイプのみを取得
 function getHighestPriorityTrigger(triggers: string[]): string | null {
   if (!triggers || triggers.length === 0) return null;
@@ -57,11 +70,27 @@ function getHighestPriorityTrigger(triggers: string[]): string | null {
   return bestTrigger;
 }
 
+function getStageScore(type?: string): number | undefined {
+  if (!type) return undefined;
+  return STAGE_SCORES[type];
+}
+
+function formatStage(stage?: number): string {
+  if (!stage) return '不明';
+  return `${STAGE_NAMES[stage] || '不明'}(${stage})`;
+}
+
+function formatDelta(delta?: number): string {
+  if (delta === undefined) return '−';
+  return delta >= 0 ? `+${delta}` : `${delta}`;
+}
+
 export default function Step11Export() {
   const { data, projectName, setData } = useProjectStore();
   const [activeTab, setActiveTab] = useState<'summary' | 'patterns' | 'timeline' | 'users' | 'log'>('summary');
   const [expandedTimelineTexts, setExpandedTimelineTexts] = useState<Set<string>>(new Set());
   const [expandedTriggerDetails, setExpandedTriggerDetails] = useState<Set<string>>(new Set());
+  const [expandedCaseTimelines, setExpandedCaseTimelines] = useState<Set<string>>(new Set());
   const [timelineUserFilter, setTimelineUserFilter] = useState<string>('all');
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -97,6 +126,211 @@ export default function Step11Export() {
 
     return domains;
   }, [inScopeRecords]);
+
+  const userStageChanges = useMemo(() => {
+    type DomainStage = { firstStage?: number; maxStage?: number; delta?: number };
+    type UserStage = {
+      userId: string;
+      firstStage?: number;
+      maxStage?: number;
+      delta?: number;
+      selfEfficacyAcquired: boolean;
+      selfEfficacyHits: number;
+      selfEfficacyTotal: number;
+      domainChanges: Record<string, DomainStage>;
+    };
+
+    const buckets: Record<string, typeof inScopeRecords> = {};
+    inScopeRecords.forEach((record) => {
+      if (!record.user_id) return;
+      if (!buckets[record.user_id]) buckets[record.user_id] = [];
+      buckets[record.user_id].push(record);
+    });
+
+    const byUser: Record<string, UserStage> = {};
+    Object.entries(buckets).forEach(([userId, records]) => {
+      const sorted = [...records].sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
+      const stageRecords = sorted.filter((r) => getStageScore(r.evidence_type_final) !== undefined);
+
+      const firstStage = stageRecords.length > 0 ? getStageScore(stageRecords[0].evidence_type_final) : undefined;
+      let maxStage = firstStage;
+      stageRecords.forEach((r) => {
+        const score = getStageScore(r.evidence_type_final);
+        if (score !== undefined) maxStage = maxStage !== undefined ? Math.max(maxStage, score) : score;
+      });
+
+      const delta = firstStage !== undefined && maxStage !== undefined ? maxStage - firstStage : undefined;
+      const selfEfficacyHits = sorted.filter((r) => r.self_efficacy_final === 1).length;
+      const selfEfficacyTotal = sorted.filter((r) => r.self_efficacy_final !== undefined).length;
+
+      const domainBuckets: Record<string, typeof sorted> = {};
+      sorted.forEach((r) => {
+        const domain = r.goal_domain_final || 'その他';
+        if (!domainBuckets[domain]) domainBuckets[domain] = [];
+        domainBuckets[domain].push(r);
+      });
+
+      const domainChanges: Record<string, DomainStage> = {};
+      Object.entries(domainBuckets).forEach(([domain, domainRecords]) => {
+        const domainSorted = [...domainRecords].sort(
+          (a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime()
+        );
+        const domainStageRecords = domainSorted.filter((r) => getStageScore(r.evidence_type_final) !== undefined);
+        if (domainStageRecords.length === 0) {
+          domainChanges[domain] = {};
+          return;
+        }
+        const domainFirst = getStageScore(domainStageRecords[0].evidence_type_final);
+        let domainMax = domainFirst;
+        domainStageRecords.forEach((r) => {
+          const score = getStageScore(r.evidence_type_final);
+          if (score !== undefined) domainMax = domainMax !== undefined ? Math.max(domainMax, score) : score;
+        });
+        domainChanges[domain] = {
+          firstStage: domainFirst,
+          maxStage: domainMax,
+          delta: domainFirst !== undefined && domainMax !== undefined ? domainMax - domainFirst : undefined,
+        };
+      });
+
+      byUser[userId] = {
+        userId,
+        firstStage,
+        maxStage,
+        delta,
+        selfEfficacyAcquired: selfEfficacyHits > 0,
+        selfEfficacyHits,
+        selfEfficacyTotal,
+        domainChanges,
+      };
+    });
+
+    return { byUser, users: Object.values(byUser) };
+  }, [inScopeRecords]);
+
+  const aggregateStageChanges = useMemo(() => {
+    const deltaDistribution: Record<string, number> = { '0': 0, '1': 0, '2': 0, '3+': 0 };
+    const domainDeltaMatrix: Record<string, Record<string, number>> = {};
+    let selfEfficacyCount = 0;
+
+    userStageChanges.users.forEach((user) => {
+      if (user.selfEfficacyAcquired) selfEfficacyCount += 1;
+      if (user.delta !== undefined) {
+        const bucket = user.delta >= 3 ? '3+' : String(user.delta);
+        deltaDistribution[bucket] = (deltaDistribution[bucket] || 0) + 1;
+      }
+
+      Object.entries(user.domainChanges).forEach(([domain, change]) => {
+        if (change.delta === undefined) return;
+        const bucket = change.delta >= 3 ? '3+' : String(change.delta);
+        if (!domainDeltaMatrix[domain]) {
+          domainDeltaMatrix[domain] = { '0': 0, '1': 0, '2': 0, '3+': 0 };
+        }
+        domainDeltaMatrix[domain][bucket] = (domainDeltaMatrix[domain][bucket] || 0) + 1;
+      });
+    });
+
+    return {
+      deltaDistribution,
+      domainDeltaMatrix,
+      selfEfficacyCount,
+      totalUsers: userStageChanges.users.length,
+    };
+  }, [userStageChanges]);
+
+  const caseTimelines = useMemo(() => {
+    type TimelinePair = {
+      triggerDate: string;
+      triggerTypes: string[];
+      triggerText: string;
+      evidenceDate: string;
+      evidenceType: string;
+      evidenceText: string;
+      stageChange?: { from?: number; to?: number; delta?: number };
+      selfEfficacyAcquired: boolean;
+      daysSincePrev?: number;
+    };
+    type Timeline = {
+      userId: string;
+      domain: string;
+      pairs: TimelinePair[];
+      totalChange?: number;
+      firstStage?: number;
+      maxStage?: number;
+      effectiveTriggers: string[];
+    };
+
+    const buckets: Record<string, { userId: string; domain: string; pairs: Array<{ evidence: typeof inScopeRecords[0]; trigger: typeof data[0] }> }> = {};
+    linkedPairs.forEach(({ evidence, trigger }) => {
+      if (!trigger) return;
+      const userId = evidence.user_id;
+      if (!userId) return;
+      const domain = evidence.goal_domain_final || 'その他';
+      const key = `${userId}|||${domain}`;
+      if (!buckets[key]) buckets[key] = { userId, domain, pairs: [] };
+      buckets[key].pairs.push({ evidence, trigger });
+    });
+
+    const timelinesByUser: Record<string, Timeline[]> = {};
+    Object.values(buckets).forEach((bucket) => {
+      const sortedPairs = [...bucket.pairs].sort(
+        (a, b) => new Date(a.evidence.datetime).getTime() - new Date(b.evidence.datetime).getTime()
+      );
+      const domainChange = userStageChanges.byUser[bucket.userId]?.domainChanges[bucket.domain];
+      let lastStage = domainChange?.firstStage;
+      let lastEvidenceDate: Date | null = null;
+      const effectiveTriggerSet = new Set<string>();
+
+      const pairs: TimelinePair[] = sortedPairs.map(({ evidence, trigger }) => {
+        const currentStage = getStageScore(evidence.evidence_type_final);
+        const fromStage = lastStage ?? currentStage;
+        const delta =
+          fromStage !== undefined && currentStage !== undefined ? currentStage - fromStage : undefined;
+        if (currentStage !== undefined) lastStage = currentStage;
+
+        const evidenceDate = new Date(evidence.datetime);
+        const daysSincePrev =
+          lastEvidenceDate !== null
+            ? Math.floor((evidenceDate.getTime() - lastEvidenceDate.getTime()) / (1000 * 60 * 60 * 24))
+            : undefined;
+        lastEvidenceDate = evidenceDate;
+
+        const topTrigger = getHighestPriorityTrigger(trigger.trigger_type_final);
+        if (topTrigger && delta !== undefined && delta > 0) effectiveTriggerSet.add(topTrigger);
+
+        return {
+          triggerDate: trigger.datetime,
+          triggerTypes: trigger.trigger_type_final || [],
+          triggerText: trigger.text_raw || '',
+          evidenceDate: evidence.datetime,
+          evidenceType: evidence.evidence_type_final || 'unknown',
+          evidenceText: evidence.text_raw || '',
+          stageChange: { from: fromStage, to: currentStage, delta },
+          selfEfficacyAcquired: evidence.self_efficacy_final === 1,
+          daysSincePrev,
+        };
+      });
+
+      const timeline: Timeline = {
+        userId: bucket.userId,
+        domain: bucket.domain,
+        pairs,
+        totalChange: domainChange?.delta,
+        firstStage: domainChange?.firstStage,
+        maxStage: domainChange?.maxStage,
+        effectiveTriggers: Array.from(effectiveTriggerSet),
+      };
+
+      if (!timelinesByUser[bucket.userId]) timelinesByUser[bucket.userId] = [];
+      timelinesByUser[bucket.userId].push(timeline);
+    });
+
+    Object.values(timelinesByUser).forEach((timelines) => {
+      timelines.sort((a, b) => a.domain.localeCompare(b.domain));
+    });
+
+    return timelinesByUser;
+  }, [linkedPairs, userStageChanges, data]);
 
   // 介入タイプ別成功率（3種類の集計）
   const triggerStats = useMemo(() => {
@@ -464,6 +698,75 @@ export default function Step11Export() {
       {/* サマリータブ */}
       {activeTab === 'summary' && (
         <div className="space-y-6">
+          {/* ステージ変化（Δ） */}
+          <div className="bg-indigo-50 rounded-lg p-4">
+            <h3 className="font-medium mb-4">ステージ変化分布（Δ = max - first）</h3>
+            <div className="space-y-2 text-sm">
+              {[
+                { key: '0', label: '+0段階（変化なし）' },
+                { key: '1', label: '+1段階' },
+                { key: '2', label: '+2段階' },
+                { key: '3+', label: '+3段階以上' },
+              ].map(({ key, label }) => {
+                const counts = aggregateStageChanges.deltaDistribution;
+                const count = counts[key] || 0;
+                const maxCount = Math.max(...Object.values(counts), 1);
+                const barWidth = Math.max((count / maxCount) * 100, 5);
+                return (
+                  <div key={key} className="flex items-center gap-3">
+                    <span className="w-36 text-gray-600">{label}</span>
+                    <div className="flex-1 bg-white rounded h-2 overflow-hidden">
+                      <div className="bg-indigo-500 h-2" style={{ width: `${barWidth}%` }} />
+                    </div>
+                    <span className="w-20 text-right font-medium">{count}人</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-4 pt-3 border-t text-sm text-gray-600">
+              自己効力感【参考値】:{' '}
+              {aggregateStageChanges.totalUsers > 0
+                ? `${aggregateStageChanges.selfEfficacyCount}/${aggregateStageChanges.totalUsers}人 (${Math.round(
+                    (aggregateStageChanges.selfEfficacyCount / aggregateStageChanges.totalUsers) * 100
+                  )}%) が自己効力感を獲得`
+                : '対象ユーザーがありません'}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">※自己効力感はデータ取得が不完全なため参考値として扱います</p>
+          </div>
+
+          {/* ドメイン×変化幅 */}
+          <div className="bg-white border rounded-lg p-4">
+            <h3 className="font-medium mb-4">ドメイン × 変化幅</h3>
+            {Object.keys(aggregateStageChanges.domainDeltaMatrix).length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="text-sm w-full">
+                  <thead>
+                    <tr className="text-left">
+                      <th className="py-1 pr-4">ドメイン</th>
+                      <th className="py-1 px-2 text-center">変化なし</th>
+                      <th className="py-1 px-2 text-center">+1</th>
+                      <th className="py-1 px-2 text-center">+2</th>
+                      <th className="py-1 px-2 text-center">+3以上</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(aggregateStageChanges.domainDeltaMatrix).map(([domain, counts]) => (
+                      <tr key={domain}>
+                        <td className="py-1 pr-4 font-medium">{domain}</td>
+                        <td className="py-1 px-2 text-center">{counts['0'] || 0}</td>
+                        <td className="py-1 px-2 text-center">{counts['1'] || 0}</td>
+                        <td className="py-1 px-2 text-center">{counts['2'] || 0}</td>
+                        <td className="py-1 px-2 text-center">{counts['3+'] || 0}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm">ステージ情報が不足しているため集計できません</p>
+            )}
+          </div>
+
           {/* 集計サマリー */}
           <div className="bg-gray-50 rounded-lg p-4">
             <h3 className="font-medium mb-4">集計サマリー</h3>
@@ -853,6 +1156,8 @@ export default function Step11Export() {
                 .filter((r) => r.user_id === userId)
                 .sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
 
+              const userStage = userStageChanges.byUser[userId];
+
               const evidenceTypesOrdered = userEvidence.map((e) => e.evidence_type_final || 'unknown');
               const evidenceTypeCounts = evidenceTypesOrdered.reduce((acc, t) => {
                 acc[t] = (acc[t] || 0) + 1;
@@ -879,6 +1184,23 @@ export default function Step11Export() {
                 if (!top) return `${domain}: データ不足`;
                 return `${domain}: ${top[0]}が多め(${top[1]}/${total}件)`;
               });
+
+              const stageSummary =
+                userStage && userStage.firstStage !== undefined && userStage.maxStage !== undefined
+                  ? `${formatStage(userStage.firstStage)} → ${formatStage(userStage.maxStage)} [${formatDelta(userStage.delta)}]`
+                  : 'ステージ情報が不足しています';
+
+              const selfEfficacySummary =
+                userStage && userStage.selfEfficacyTotal > 0
+                  ? `${userStage.selfEfficacyAcquired ? '獲得あり ✓' : '獲得なし'} (${userStage.selfEfficacyHits}/${userStage.selfEfficacyTotal}件で発現)`
+                  : 'データなし';
+
+              const domainStageEntries = Object.entries(userStage?.domainChanges || {});
+              const maxDomainDelta = Math.max(
+                ...domainStageEntries.map(([, change]) => change.delta ?? 0),
+                1
+              );
+              const userTimelines = caseTimelines[userId] || [];
 
               const triggerTrend = Object.entries(userData.triggers)
                 .map(([type, stats]) => {
@@ -907,6 +1229,14 @@ export default function Step11Export() {
                         {userEvidence.length > 0
                           ? `${userEvidence[0].datetime.slice(0, 10)} 〜 ${userEvidence[userEvidence.length - 1].datetime.slice(0, 10)}`
                           : '該当データなし'}
+                      </div>
+                      <div>
+                        <span className="text-gray-500">ステージ変化:</span>{' '}
+                        {stageSummary}
+                      </div>
+                      <div>
+                        <span className="text-gray-500">自己効力感【参考値】:</span>{' '}
+                        {selfEfficacySummary}
                       </div>
                       <div>
                         <span className="text-gray-500">全体の変化概要:</span>{' '}
@@ -940,6 +1270,36 @@ export default function Step11Export() {
                     <span className="text-sm">
                       {Object.entries(userData.domains).map(([d, c]) => `${d}(${c}件)`).join(', ') || 'なし'}
                     </span>
+                  </div>
+
+                  {/* ドメイン別変化 */}
+                  <div className="mb-4">
+                    <h4 className="text-sm font-medium text-gray-600 mb-2">ドメイン別変化</h4>
+                    {domainStageEntries.length > 0 ? (
+                      <div className="space-y-2">
+                        {domainStageEntries.map(([domain, change]) => {
+                          const delta = change.delta ?? 0;
+                          const barWidth = Math.max((delta / maxDomainDelta) * 100, 8);
+                          return (
+                            <div key={domain} className="text-sm">
+                              <div className="flex items-center gap-2">
+                                <span className="w-24 text-gray-600">{domain}</span>
+                                <span className="text-gray-700">
+                                  {formatStage(change.firstStage)} → {formatStage(change.maxStage)} [{formatDelta(change.delta)}]
+                                </span>
+                              </div>
+                              <div className="ml-24 mt-1">
+                                <div className="bg-purple-100 h-2 rounded">
+                                  <div className="bg-purple-500 h-2 rounded" style={{ width: `${barWidth}%` }} />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">ドメイン別のステージ情報がありません</p>
+                    )}
                   </div>
 
                   {/* 行動変容の流れ */}
@@ -1016,6 +1376,96 @@ export default function Step11Export() {
                         );
                       })}
                     </div>
+                  </div>
+
+                  {/* ケース詳細タイムライン */}
+                  <div className="mb-4">
+                    <h4 className="text-sm font-medium text-gray-600 mb-2">ケース詳細タイムライン</h4>
+                    {userTimelines.length > 0 ? (
+                      <div className="space-y-3">
+                        {userTimelines.map((timeline) => {
+                          const key = `${timeline.userId}::${timeline.domain}`;
+                          const expanded = expandedCaseTimelines.has(key);
+                          const headerText = `${timeline.domain} ${formatStage(timeline.firstStage)} → ${formatStage(timeline.maxStage)} [${formatDelta(timeline.totalChange)}]`;
+                          return (
+                            <div key={key} className="border rounded-lg overflow-hidden">
+                              <button
+                                className="w-full px-4 py-2 bg-gray-50 flex items-center justify-between text-left"
+                                onClick={() => {
+                                  const newSet = new Set(expandedCaseTimelines);
+                                  newSet.has(key) ? newSet.delete(key) : newSet.add(key);
+                                  setExpandedCaseTimelines(newSet);
+                                }}
+                              >
+                                <span className="text-sm font-medium text-gray-800">
+                                  {expanded ? '−' : '+'} {headerText}
+                                </span>
+                                <span className="text-xs text-gray-500">{expanded ? '閉じる' : '開く'}</span>
+                              </button>
+                              {expanded && (
+                                <div className="p-4 space-y-4 bg-white">
+                                  {timeline.pairs.map((pair, idx) => {
+                                    const triggerText =
+                                      pair.triggerText.length > 80
+                                        ? `${pair.triggerText.slice(0, 80)}...`
+                                        : pair.triggerText;
+                                    const evidenceText =
+                                      pair.evidenceText.length > 80
+                                        ? `${pair.evidenceText.slice(0, 80)}...`
+                                        : pair.evidenceText;
+                                    const stageText = pair.stageChange
+                                      ? `${formatStage(pair.stageChange.from)} → ${formatStage(pair.stageChange.to)} [${formatDelta(pair.stageChange.delta)}]`
+                                      : 'ステージ情報なし';
+                                    return (
+                                      <div key={`${key}-${idx}`} className="text-sm">
+                                        <div className="text-gray-500 mb-1">
+                                          日付: {pair.triggerDate ? pair.triggerDate.slice(0, 10) : '日付不明'}
+                                        </div>
+                                        <div className="pl-3 border-l-2 border-blue-200">
+                                          <div className="text-xs text-blue-600 mb-1">提示</div>
+                                          <div className="text-gray-800">{triggerText || '（記録なし）'}</div>
+                                          <div className="text-xs text-gray-500 mt-1">
+                                            {pair.triggerTypes.length > 0 ? pair.triggerTypes.join(' / ') : 'トリガー未分類'}
+                                          </div>
+                                        </div>
+                                        <div className="text-center text-gray-400 my-2">↓</div>
+                                        <div className="pl-3 border-l-2 border-green-200">
+                                          <div className="flex items-center gap-2 text-xs text-green-600 mb-1">
+                                            <span>受け止め</span>
+                                            {pair.daysSincePrev !== undefined && (
+                                              <span className="text-gray-400">[{pair.daysSincePrev}日後]</span>
+                                            )}
+                                          </div>
+                                          <div className="text-gray-800">{evidenceText || '（記録なし）'}</div>
+                                          <div className="text-xs text-gray-500 mt-1">
+                                            {pair.evidenceType}
+                                          </div>
+                                          <div className="text-xs text-gray-600 mt-1">
+                                            ステージ: {stageText}
+                                            {pair.selfEfficacyAcquired && (
+                                              <span className="text-emerald-600 ml-2">自己効力感【参考】: ✓</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                  <div className="text-xs text-gray-500 pt-3 border-t">
+                                    合計変化: {formatStage(timeline.firstStage)} → {formatStage(timeline.maxStage)} [{formatDelta(timeline.totalChange)}]
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    有効だった介入:{' '}
+                                    {timeline.effectiveTriggers.length > 0 ? timeline.effectiveTriggers.join(', ') : '該当なし'}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">リンク済みのケースがありません</p>
+                    )}
                   </div>
 
                   {/* 有効だった介入 */}

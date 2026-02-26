@@ -86,6 +86,7 @@ export interface ChatRecord {
   evidence_type_auto?: string;
   evidence_type_confidence?: number;
   evidence_type_final?: string;
+  self_efficacy_final?: number;
   scope_auto?: string;
   scope_override?: string;
   scope_final?: string;
